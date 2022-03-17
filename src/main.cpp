@@ -1,6 +1,10 @@
 #include <version.hpp>
 
+#include <cassert>
+#include <fstream>
 #include <iostream>
+#include <sstream>
+#include <vector>
 
 #define GLAD_GL_IMPLEMENTATION
 #define GLFW_INCLUDE_NONE
@@ -16,6 +20,124 @@
     #define SHADER_PATH DEFAULT_SHADER_PATH
 #endif
 
+#define CHECK_UNIFORM(u) \
+    do \
+    { \
+        if (u == -1) \
+            std::cerr << "warn: no location for " #u "\n"; \
+    } while (0)
+
+#define UNIFORM(p, u) \
+    const GLint u = glGetUniformLocation (p, #u); \
+    CHECK_UNIFORM (u)
+
+static void check_shader_status (GLuint shader, GLuint what)
+{
+    int res = GL_TRUE;
+    glGetShaderiv (shader, what, &res);
+
+    if (res != GL_TRUE)
+    {
+        int log_size = 0;
+        glGetShaderiv (shader, GL_INFO_LOG_LENGTH, &log_size);
+
+        if (! log_size)
+            return;
+
+        char *message = new char[log_size];
+        glGetShaderInfoLog (shader, log_size, &log_size, message);
+
+        std::cerr << message << '\n';
+
+        delete[] message;
+        assert (0);
+    }
+}
+
+static void check_program_status (GLuint program, GLuint what)
+{
+    int res = GL_TRUE;
+    glGetProgramiv (program, what, &res);
+
+    if (res != GL_TRUE)
+    {
+        int log_size = 0;
+        glGetProgramiv (program, GL_INFO_LOG_LENGTH, &log_size);
+
+        if (! log_size)
+            return;
+
+        char *message = new char[log_size];
+        glGetProgramInfoLog (program, log_size, &log_size, message);
+
+        std::cerr << message << '\n';
+
+        delete[] message;
+        assert (0);
+    }
+}
+
+struct shader_info
+{
+    const char *filepath;
+    GLuint type;
+};
+
+static GLuint compile_shader (const shader_info &s)
+{
+    // Read shader file into local buffer.
+    std::ifstream f;
+    std::cout << "Loading shader: " << s.filepath << '\n';
+
+    f.open (s.filepath);
+    assert (f.good ());
+
+    std::string source;
+    {
+        std::stringstream ss;
+        while (! f.eof ())
+        {
+            std::string line;
+            std::getline (f, line);
+            ss << line << '\n';
+        }
+        source = ss.str ();
+    }
+    const char *sz_source = source.c_str ();
+
+    // Prepare and compile shader
+    GLuint shader = glCreateShader (s.type);
+    glShaderSource (shader, 1, &sz_source, nullptr);
+    glCompileShader (shader);
+    check_shader_status (shader, GL_COMPILE_STATUS);
+
+    return shader;
+}
+
+static GLuint prepare_program (std::initializer_list <shader_info> shaders)
+{
+    GLuint program = glCreateProgram ();
+
+    std::cout << "Preparing program " << program << "...\n";
+
+    for (const auto &s : shaders)
+    {
+        GLuint shader = compile_shader (s);
+        glAttachShader (program, shader);
+        glDeleteShader (shader);
+    }
+
+    std::cout << "Linking program...\n";
+    glLinkProgram (program);
+    check_program_status (program, GL_LINK_STATUS);
+
+    std::cout << "Validating program...\n";
+    glValidateProgram (program);
+    check_program_status (program, GL_VALIDATE_STATUS);
+
+    std::cout << "Program " << program << " OK.\n";
+    return program;
+}
 
 /* Callbacks. */
 static void
@@ -87,15 +209,95 @@ main (int argc, char **argv)
     // Set input callbacks.
     glfwSetKeyCallback (window, key_callback);
 
+    // Setup cube geometry.
+    const glm::vec3 pos = {0.0f, 0.0f, 0.0f};
+    const GLfloat scale = 1.0f;
+
+    const GLfloat vertices[24] = {
+        pos.x - scale / 2, pos.y - scale / 2, pos.z - scale / 2,
+        pos.x - scale / 2, pos.y - scale / 2, pos.z + scale / 2,
+        pos.x - scale / 2, pos.y + scale / 2, pos.z - scale / 2,
+        pos.x - scale / 2, pos.y + scale / 2, pos.z + scale / 2,
+        pos.x + scale / 2, pos.y - scale / 2, pos.z - scale / 2,
+        pos.x + scale / 2, pos.y - scale / 2, pos.z + scale / 2,
+        pos.x + scale / 2, pos.y + scale / 2, pos.z - scale / 2,
+        pos.x + scale / 2, pos.y + scale / 2, pos.z + scale / 2
+    };
+
+    const GLuint indices[14] = {
+        4, 6, 5, 7, 3, 6, 2, 4, 0, 5, 1, 3, 0, 2
+    };
+
+    // Init stuff.
+    GLuint vao = 65535U, vbo = 65535U, ibo = 65535U;
+    glGenVertexArrays (1, &vao);
+    glGenBuffers (1, &vbo);
+    glGenBuffers (1, &ibo);
+
+    glBindVertexArray (vao);
+    glBindBuffer (GL_ARRAY_BUFFER, vbo);
+    glBindBuffer (GL_ELEMENT_ARRAY_BUFFER, ibo);
+
+    glBufferData (GL_ARRAY_BUFFER, sizeof (vertices), vertices, GL_STATIC_DRAW);
+    glBufferData (GL_ELEMENT_ARRAY_BUFFER, sizeof (indices), indices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*) 0);
+    glEnableVertexAttribArray (0);
+
+    glBindVertexArray (0);
+    glDeleteBuffers (1, &vbo);
+    glDeleteBuffers (1, &ibo);
+
+    // Setup shaders.
+    GLuint prog = prepare_program ({
+        { SHADER_PATH "default.vert", GL_VERTEX_SHADER },
+        { SHADER_PATH "default.frag", GL_FRAGMENT_SHADER }
+    });
+
+    glUseProgram (prog);
+    UNIFORM (prog, u_model);
+    UNIFORM (prog, u_view);
+    UNIFORM (prog, u_projection);
+    glUseProgram (0);
+
+    // Setup camera.
+    glm::vec3 camera = {2.0f, 2.0f, 2.0f};
+    glm::vec3 target = {0.0f, 0.0f, 0.0f};
+    constexpr GLfloat FOV = 45.0f;
+    constexpr GLfloat near = 0.1f;
+    constexpr GLfloat far = 100.0f;
+
+    glViewport (0, 0, 640, 480);
+
     // Loop until the user closes the window
     while (! glfwWindowShouldClose (window))
     {
-        glClear (GL_COLOR_BUFFER_BIT);
+        static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+        glClearBufferfv (GL_COLOR, 0, background_color);
+
+        glUseProgram (prog);
+        glBindVertexArray (vao);
+
+        glm::mat4 view = glm::lookAt (camera, target, glm::vec3 (0.0f, 1.0f, 0.0f));
+        glm::mat4 projection = glm::perspective (glm::radians (FOV),
+                                                               (float) 640 / (float) 480,
+                                                               near,
+                                                               far);
+        glm::mat4 model (1.0f);
+        model = glm::translate (model, pos);
+
+        glUniformMatrix4fv (u_view, 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv (u_projection, 1, GL_FALSE, &projection[0][0]);
+        glUniformMatrix4fv (u_model, 1, GL_FALSE, &model[0][0]);
+
+        glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
 
         glfwSwapBuffers (window);
         glfwPollEvents ();
     }
 
+    glDeleteProgram (prog);
+    glDeleteVertexArrays (1, &vao);
     glfwDestroyWindow (window);
     glfwTerminate ();
     return 0;
