@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -14,6 +15,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 // Shader stuff
+#define BUFFER_OFFSET(o) ((void*) (o))
+
 #ifndef DEFAULT_SHADER_PATH
     #define SHADER_PATH ""
 #else
@@ -31,7 +34,8 @@
     const GLint u = glGetUniformLocation (p, #u); \
     CHECK_UNIFORM (u)
 
-static void check_shader_status (GLuint shader, GLuint what)
+static void
+check_shader_status (GLuint shader, GLuint what)
 {
     int res = GL_TRUE;
     glGetShaderiv (shader, what, &res);
@@ -54,7 +58,8 @@ static void check_shader_status (GLuint shader, GLuint what)
     }
 }
 
-static void check_program_status (GLuint program, GLuint what)
+static void
+check_program_status (GLuint program, GLuint what)
 {
     int res = GL_TRUE;
     glGetProgramiv (program, what, &res);
@@ -83,7 +88,8 @@ struct shader_info
     GLuint type;
 };
 
-static GLuint compile_shader (const shader_info &s)
+static GLuint
+compile_shader (const shader_info &s)
 {
     // Read shader file into local buffer.
     std::ifstream f;
@@ -114,7 +120,8 @@ static GLuint compile_shader (const shader_info &s)
     return shader;
 }
 
-static GLuint prepare_program (std::initializer_list <shader_info> shaders)
+static GLuint
+prepare_program (std::initializer_list <shader_info> shaders)
 {
     GLuint program = glCreateProgram ();
 
@@ -139,6 +146,7 @@ static GLuint prepare_program (std::initializer_list <shader_info> shaders)
     return program;
 }
 
+
 /* Callbacks. */
 static void
 glfw_error_callback (int error, const char *desc)
@@ -155,6 +163,13 @@ key_callback (GLFWwindow *window,
     {
         glfwSetWindowShouldClose (window, GLFW_TRUE);
     }
+}
+
+void
+clean_glfw (GLFWwindow *window)
+{
+    glfwDestroyWindow (window);
+    glfwTerminate ();
 }
 
 int
@@ -189,12 +204,15 @@ main (int argc, char **argv)
     if (! glad_version)
     {
         std::cerr << "Failed to load OpenGL functions with Glad.\n";
-        glfwDestroyWindow (window);
-        glfwTerminate ();
+        clean_glfw (window);
         return 1;
     }
 
     // Let OpenGL know we want to use the programmable pipeline.
+    // Version 3.3.0 is selected for maximum portability.
+    // It may be increased in time if more advanced features are required.
+    glfwWindowHint (GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint (GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint (GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     std::cout << "OpenGL " << GLAD_VERSION_MAJOR (glad_version) << "."
@@ -210,8 +228,9 @@ main (int argc, char **argv)
     glfwSetKeyCallback (window, key_callback);
 
     // Setup cube geometry.
+    const glm::vec3 caca (0.0f, 0.0f, 0.0f);
     const glm::vec3 pos = {0.0f, 0.0f, 0.0f};
-    const GLfloat scale = 1.0f;
+    const GLfloat scale = 0.1f;
 
     const GLfloat vertices[24] = {
         pos.x - scale / 2, pos.y - scale / 2, pos.z - scale / 2,
@@ -229,10 +248,29 @@ main (int argc, char **argv)
     };
 
     // Init stuff.
-    GLuint vao = 65535U, vbo = 65535U, ibo = 65535U;
+    GLuint vao = 0U, vbo = 0U, ibo = 0U;
     glGenVertexArrays (1, &vao);
     glGenBuffers (1, &vbo);
     glGenBuffers (1, &ibo);
+
+    if (! vao)
+    {
+        std::cerr << "error: could not generate vertex array\n";
+        clean_glfw (window);
+        return 1;
+    }
+    if (! vbo)
+    {
+        std::cerr << "error: could not generate vertex buffer\n";
+        clean_glfw (window);
+        return 1;
+    }
+    if (! ibo)
+    {
+        std::cerr << "error: could not generate index buffer \n";
+        clean_glfw (window);
+        return 1;
+    }
 
     glBindVertexArray (vao);
     glBindBuffer (GL_ARRAY_BUFFER, vbo);
@@ -241,7 +279,8 @@ main (int argc, char **argv)
     glBufferData (GL_ARRAY_BUFFER, sizeof (vertices), vertices, GL_STATIC_DRAW);
     glBufferData (GL_ELEMENT_ARRAY_BUFFER, sizeof (indices), indices, GL_STATIC_DRAW);
 
-    glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*) 0);
+    // glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*) 0);
+    glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET (0));
     glEnableVertexAttribArray (0);
 
     glBindVertexArray (0);
@@ -261,8 +300,12 @@ main (int argc, char **argv)
     glUseProgram (0);
 
     // Setup camera.
+    const GLfloat speed = 2.0f;
+    const GLfloat radius = 0.5f;
+    GLfloat time = static_cast<GLfloat> (glfwGetTime () * speed);
     glm::vec3 camera = {2.0f, 2.0f, 2.0f};
     glm::vec3 target = {0.0f, 0.0f, 0.0f};
+    const glm::vec3 up_vector (0.0f, 1.0f, 0.0f);
     constexpr GLfloat FOV = 45.0f;
     constexpr GLfloat near = 0.1f;
     constexpr GLfloat far = 100.0f;
@@ -278,13 +321,17 @@ main (int argc, char **argv)
         glUseProgram (prog);
         glBindVertexArray (vao);
 
-        glm::mat4 view = glm::lookAt (camera, target, glm::vec3 (0.0f, 1.0f, 0.0f));
+        time = static_cast<GLfloat> (glfwGetTime () * speed);
+        camera = glm::vec3 (glm::sin (time) * radius,
+                            0.0f,
+                            glm::cos (time) * radius);
+        glm::mat4 view = glm::lookAt (camera, target, up_vector);
         glm::mat4 projection = glm::perspective (glm::radians (FOV),
                                                                (float) 640 / (float) 480,
                                                                near,
                                                                far);
         glm::mat4 model (1.0f);
-        model = glm::translate (model, pos);
+        model = glm::translate (model, caca);
 
         glUniformMatrix4fv (u_view, 1, GL_FALSE, &view[0][0]);
         glUniformMatrix4fv (u_projection, 1, GL_FALSE, &projection[0][0]);
@@ -298,7 +345,6 @@ main (int argc, char **argv)
 
     glDeleteProgram (prog);
     glDeleteVertexArrays (1, &vao);
-    glfwDestroyWindow (window);
-    glfwTerminate ();
+    clean_glfw (window);
     return 0;
 }

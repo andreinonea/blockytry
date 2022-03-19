@@ -19,7 +19,7 @@ target_include_directories (blockytry PRIVATE
 )
 
 if (NOT DEFAULT_SHADER_PATH)
-    set (DEFAULT_SHADER_PATH "${CMAKE_SOURCE_DIR}/src/shaders/")
+    set (DEFAULT_SHADER_PATH "${CMAKE_SOURCE_DIR}/shaders/")
 endif ()
 
 target_compile_definitions (blockytry PRIVATE
