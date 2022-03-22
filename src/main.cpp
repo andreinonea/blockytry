@@ -156,7 +156,7 @@ glfw_error_callback (int error, const char *desc)
     std::cerr << "Error [" << error << "]: " << desc << '\n';
 }
 
-static GLboolean is_wireframe = GL_FALSE;
+static GLboolean g_is_wireframe = GL_FALSE;
 
 static void
 key_callback (GLFWwindow *window,
@@ -173,7 +173,7 @@ key_callback (GLFWwindow *window,
             case GLFW_KEY_W:
                 if (mods & GLFW_MOD_SHIFT)
                 {
-                    if (is_wireframe)
+                    if (g_is_wireframe)
                     {
                         glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
                         // std::cout << "Wireframe disabled\n";
@@ -183,13 +183,35 @@ key_callback (GLFWwindow *window,
                         glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
                         // std::cout << "Wireframe enabled\n";
                     }
-                    is_wireframe = ! is_wireframe;
+                    g_is_wireframe = ! g_is_wireframe;
                 }
                 break;
             default:
                 break;
         }
     }
+}
+
+static void
+window_size_callback (GLFWwindow *window, int width, int height)
+{
+    // std::cout << "Window size: " << width << "x" << height << '\n';
+}
+
+static glm::mat4 g_projection (1.0f);
+constexpr GLfloat g_FOV = 45.0f;
+constexpr GLfloat g_near = 0.1f;
+constexpr GLfloat g_far = 100.0f;
+
+static void
+framebuffer_size_callback (GLFWwindow *window, int width, int height)
+{
+    glViewport (0, 0, width, height);
+    g_projection = glm::perspective (glm::radians (g_FOV),
+                                     (float) width / (float) height,
+                                     g_near,
+                                     g_far);
+    // std::cout << "Framebuffer size: " << width << "x" << height << '\n';
 }
 
 void
@@ -215,8 +237,18 @@ main (int argc, char **argv)
     }
     std::cout << "GLFW " << glfwGetVersionString () << '\n';
 
+    // Let OpenGL know we want to use the programmable pipeline.
+    // Version 3.3.0 is selected for maximum portability.
+    // It may be increased in time if more advanced features are required.
+    glfwDefaultWindowHints ();
+    glfwWindowHint (GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint (GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint (GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
     // Create a windowed mode window and make its context current
-    GLFWwindow *window = glfwCreateWindow (640, 480,
+    int width = 640;
+    int height = 480;
+    GLFWwindow *window = glfwCreateWindow (width, height,
                                            "Blockytry",
                                            nullptr, nullptr);
     if (! window)
@@ -235,13 +267,6 @@ main (int argc, char **argv)
         return 1;
     }
 
-    // Let OpenGL know we want to use the programmable pipeline.
-    // Version 3.3.0 is selected for maximum portability.
-    // It may be increased in time if more advanced features are required.
-    glfwWindowHint (GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint (GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint (GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
     std::cout << "OpenGL " << GLAD_VERSION_MAJOR (glad_version) << "."
               << GLAD_VERSION_MINOR (glad_version) << " Core profile\n";
     std::cout << "GLAD loader " << GLAD_GENERATOR_VERSION << '\n';
@@ -251,8 +276,10 @@ main (int argc, char **argv)
     std::cout << "Driver version " << glGetString (GL_VERSION) << '\n';
     std::cout << "Device vendor " << glGetString (GL_RENDERER) << '\n';
 
-    // Set input callbacks.
+    // Set callbacks.
     glfwSetKeyCallback (window, key_callback);
+    glfwSetWindowSizeCallback (window, window_size_callback);
+    glfwSetFramebufferSizeCallback (window, framebuffer_size_callback);
 
     // Setup cube geometry.
     const glm::vec3 caca (0.0f, 0.0f, 0.0f);
@@ -329,15 +356,15 @@ main (int argc, char **argv)
     // Setup camera.
     const GLfloat speed = 2.0f;
     const GLfloat radius = 0.5f;
-    GLfloat time = static_cast<GLfloat> (glfwGetTime () * speed);
+    GLfloat time = 0.0f;
     glm::vec3 camera = {2.0f, 2.0f, 2.0f};
     glm::vec3 target = {0.0f, 0.0f, 0.0f};
     const glm::vec3 up_vector (0.0f, 1.0f, 0.0f);
-    constexpr GLfloat FOV = 45.0f;
-    constexpr GLfloat near = 0.1f;
-    constexpr GLfloat far = 100.0f;
 
-    glViewport (0, 0, 640, 480);
+    g_projection = glm::perspective (glm::radians (g_FOV),
+                                     (float) width / (float) height,
+                                     g_near,
+                                     g_far);
 
     // Loop until the user closes the window
     while (! glfwWindowShouldClose (window))
@@ -353,15 +380,11 @@ main (int argc, char **argv)
                             0.0f,
                             glm::cos (time) * radius);
         glm::mat4 view = glm::lookAt (camera, target, up_vector);
-        glm::mat4 projection = glm::perspective (glm::radians (FOV),
-                                                               (float) 640 / (float) 480,
-                                                               near,
-                                                               far);
         glm::mat4 model (1.0f);
         model = glm::translate (model, caca);
 
         glUniformMatrix4fv (u_view, 1, GL_FALSE, &view[0][0]);
-        glUniformMatrix4fv (u_projection, 1, GL_FALSE, &projection[0][0]);
+        glUniformMatrix4fv (u_projection, 1, GL_FALSE, &g_projection[0][0]);
         glUniformMatrix4fv (u_model, 1, GL_FALSE, &model[0][0]);
 
         glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
