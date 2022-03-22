@@ -146,7 +146,9 @@ prepare_program (std::initializer_list <shader_info> shaders)
     return program;
 }
 
+// Camera stuff.
 
+// GLFW stuff.
 /* Callbacks. */
 static void
 glfw_error_callback (int error, const char *desc)
@@ -154,14 +156,39 @@ glfw_error_callback (int error, const char *desc)
     std::cerr << "Error [" << error << "]: " << desc << '\n';
 }
 
+static GLboolean is_wireframe = GL_FALSE;
+
 static void
 key_callback (GLFWwindow *window,
               int key, int scancode, int action, int mods)
 
 {
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+    if (action == GLFW_PRESS)
     {
-        glfwSetWindowShouldClose (window, GLFW_TRUE);
+        switch (key)
+        {
+            case GLFW_KEY_ESCAPE:
+                glfwSetWindowShouldClose (window, GLFW_TRUE);
+                break;
+            case GLFW_KEY_W:
+                if (mods & GLFW_MOD_SHIFT)
+                {
+                    if (is_wireframe)
+                    {
+                        glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
+                        // std::cout << "Wireframe disabled\n";
+                    }
+                    else
+                    {
+                        glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
+                        // std::cout << "Wireframe enabled\n";
+                    }
+                    is_wireframe = ! is_wireframe;
+                }
+                break;
+            default:
+                break;
+        }
     }
 }
 
