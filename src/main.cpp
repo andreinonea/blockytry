@@ -1,10 +1,16 @@
 #include <version.hpp>
 
+#include <io/keyboard_input.hpp>
+#include <shared/counter.hpp>
+#include <shared/lookup_table.hpp>
+
 #include <cassert>
+#include <cstddef>
 #include <fstream>
 #include <initializer_list>
 #include <iostream>
 #include <sstream>
+#include <string_view>
 #include <vector>
 
 #define GLAD_GL_IMPLEMENTATION
@@ -186,33 +192,78 @@ key_callback (GLFWwindow *window,
                     g_is_wireframe = ! g_is_wireframe;
                 }
                 break;
+            case GLFW_KEY_ENTER:
+                if (mods & GLFW_MOD_ALT)
+                {
+                    std::cout << "Fullscreen\n";
+                }
             default:
                 break;
         }
     }
+    if ((action == GLFW_PRESS || action == GLFW_REPEAT) && key == GLFW_KEY_T)
+    {
+        std::cout << "Repeat\n";
+    }
 }
 
+/*
 static void
 window_size_callback (GLFWwindow *window, int width, int height)
 {
     // std::cout << "Window size: " << width << "x" << height << '\n';
 }
+*/
+
+struct eyepoint
+{
+    eyepoint ()
+        : position { 0.0f, 0.0f, 1.0f }
+        , direction { 0.0f, 0.0f, -1.0f }
+        , up { 0.0f, 1.0f, 0.0f }
+        , FOV (45.0f)
+        , near (0.1f)
+        , far (100.0f)
+    {}
+
+    inline glm::mat4 see () const
+    {
+        return glm::lookAt (position, position + direction, up);
+    }
+
+    inline glm::mat4 follow () const
+    {
+        return glm::lookAt (position, target, up);
+    }
+
+    glm::vec3 position;
+    glm::vec3 direction;
+    glm::vec3 target;
+    glm::vec3 up;
+    GLfloat FOV = 45.0f;
+    GLfloat near = 0.1f;
+    GLfloat far = 100.0f;
+} g_lens;
 
 static glm::mat4 g_projection (1.0f);
-constexpr GLfloat g_FOV = 45.0f;
-constexpr GLfloat g_near = 0.1f;
-constexpr GLfloat g_far = 100.0f;
 
 static void
 framebuffer_size_callback (GLFWwindow *window, int width, int height)
 {
     glViewport (0, 0, width, height);
-    g_projection = glm::perspective (glm::radians (g_FOV),
+    g_projection = glm::perspective (glm::radians (g_lens.FOV),
                                      (float) width / (float) height,
-                                     g_near,
-                                     g_far);
+                                     g_lens.near,
+                                     g_lens.far);
     // std::cout << "Framebuffer size: " << width << "x" << height << '\n';
 }
+
+/*
+void character_callback(GLFWwindow* window, unsigned int codepoint)
+{
+    std::cerr << codepoint; // cerr is automatically flushed.
+}
+*/
 
 void
 clean_glfw (GLFWwindow *window)
@@ -221,9 +272,39 @@ clean_glfw (GLFWwindow *window)
     glfwTerminate ();
 }
 
+
+using namespace std::string_view_literals;
+
+static constexpr shared::map <std::string_view, int, 3> actions = 
+    {{
+        { "jump"sv, GLFW_KEY_SPACE },
+        { "walk"sv, GLFW_KEY_W },
+        { "run"sv, GLFW_KEY_LEFT_SHIFT }
+    }};
+
+static constexpr shared::map <int, double, 3> actions2 = 
+    {{
+        { GLFW_KEY_SPACE, 2.4 },
+        { GLFW_KEY_W, 3.0 },
+        { GLFW_KEY_LEFT_SHIFT, 0.3213 }
+    }};
+
+
 int
 main (int argc, char **argv)
 {
+    std::cout << "CRAPPY BUILD!!!\n";
+
+    double key = shared::lookup (actions2, shared::lookup (actions, "jump"));
+    std::cout << key << '\n';
+
+    key = shared::lookup (actions2, shared::lookup (actions, "walk"));
+    std::cout << key << '\n';
+
+    key = shared::lookup (actions2, shared::lookup (actions, "run"));
+    std::cout << key << '\n';
+
+    return 0;
     std::cout << "Blockytry " << BLOCKYTRY_VERSION_STRING << '\n';
 
     // Set error callback.
@@ -278,8 +359,9 @@ main (int argc, char **argv)
 
     // Set callbacks.
     glfwSetKeyCallback (window, key_callback);
-    glfwSetWindowSizeCallback (window, window_size_callback);
+    // glfwSetWindowSizeCallback (window, window_size_callback);
     glfwSetFramebufferSizeCallback (window, framebuffer_size_callback);
+    // glfwSetCharCallback(window, character_callback);
 
     // Setup cube geometry.
     const glm::vec3 caca (0.0f, 0.0f, 0.0f);
@@ -357,14 +439,16 @@ main (int argc, char **argv)
     const GLfloat speed = 2.0f;
     const GLfloat radius = 0.5f;
     GLfloat time = 0.0f;
-    glm::vec3 camera = {2.0f, 2.0f, 2.0f};
-    glm::vec3 target = {0.0f, 0.0f, 0.0f};
-    const glm::vec3 up_vector (0.0f, 1.0f, 0.0f);
 
-    g_projection = glm::perspective (glm::radians (g_FOV),
+    g_lens.direction = { 0.0f, 0.0f, 0.0f };
+
+    g_projection = glm::perspective (glm::radians (g_lens.FOV),
                                      (float) width / (float) height,
-                                     g_near,
-                                     g_far);
+                                     g_lens.near,
+                                     g_lens.far);
+
+    shared::counter_down <GLuint> key_recurrence_counter;
+    key_recurrence_counter.reset (10U);
 
     // Loop until the user closes the window
     while (! glfwWindowShouldClose (window))
@@ -376,10 +460,10 @@ main (int argc, char **argv)
         glBindVertexArray (vao);
 
         time = static_cast<GLfloat> (glfwGetTime () * speed);
-        camera = glm::vec3 (glm::sin (time) * radius,
-                            0.0f,
-                            glm::cos (time) * radius);
-        glm::mat4 view = glm::lookAt (camera, target, up_vector);
+        g_lens.position = glm::vec3 (glm::sin (time) * radius,
+                                     0.0f,
+                                     glm::cos (time) * radius);
+        glm::mat4 view = glm::lookAt (g_lens.position, g_lens.direction, g_lens.up);
         glm::mat4 model (1.0f);
         model = glm::translate (model, caca);
 
