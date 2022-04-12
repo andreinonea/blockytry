@@ -1,2 +1,5 @@
 # All folders starting with '_'
 _*/
+
+# Vscode
+.vscode/
