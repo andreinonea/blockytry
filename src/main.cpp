@@ -13,7 +13,6 @@
 
 #include <spdlog/spdlog.h>
 
-#define GLAD_GL_IMPLEMENTATION
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>

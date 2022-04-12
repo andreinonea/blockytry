@@ -1,3 +1,10 @@
+add_library (glad STATIC)
+
+target_sources (glad PRIVATE "glad/gl.cpp")
+
+target_include_directories (glad PUBLIC "${CMAKE_SOURCE_DIR}/include/glad")
+
+
 add_executable (blockytry)
 
 target_sources (blockytry PRIVATE
@@ -5,6 +12,7 @@ target_sources (blockytry PRIVATE
 )
 
 target_link_libraries (blockytry PRIVATE
+    glad
     glfw
     glm::glm
     spdlog::spdlog
