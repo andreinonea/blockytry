@@ -22,8 +22,16 @@ if (UNIX)
     set (OpenGL_GL_PREFERENCE GLVND)
 endif (UNIX)
 
-find_package (glfw3 REQUIRED)
+# NO_CMAKE_SYSTEM_PATH disables looking in common system paths
+# so that the local sysroot in ./_sysroot/usr/local is found.
+# Might change this later on.
+find_package (glfw3 REQUIRED NO_CMAKE_SYSTEM_PATH)
 find_package (glm REQUIRED)
+
+if(NOT TARGET spdlog)
+    # Stand-alone build
+    find_package(spdlog REQUIRED NO_CMAKE_SYSTEM_PATH)
+endif()
 
 # Set build type
 if (PROJECT_VERSION VERSION_LESS 1.0.0)
@@ -32,6 +40,5 @@ endif()
 if (PROJECT_VERSION VERSION_LESS 0.1.0)
     set (blockytry_BUILD_TYPE "Alpha")
 endif()
-
 
 add_subdirectory (src)

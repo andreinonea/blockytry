@@ -7,6 +7,7 @@ target_sources (blockytry PRIVATE
 target_link_libraries (blockytry PRIVATE
     glfw
     glm::glm
+    spdlog::spdlog
 )
 
 configure_file ("${CMAKE_SOURCE_DIR}/include/version.hpp.in"
