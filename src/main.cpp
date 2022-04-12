@@ -1,10 +1,8 @@
 #include <version.hpp>
 
-#include <io/keyboard_input.hpp>
-#include <shared/counter.hpp>
-#include <shared/lookup_table.hpp>
-
+#include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <fstream>
 #include <initializer_list>
@@ -13,14 +11,19 @@
 #include <string_view>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+
 #define GLAD_GL_IMPLEMENTATION
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/string_cast.hpp>
 
-// Shader stuff
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// SHADERS
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 #define BUFFER_OFFSET(o) ((void*) (o))
 
 #ifndef DEFAULT_SHADER_PATH
@@ -40,8 +43,7 @@
     const GLint u = glGetUniformLocation (p, #u); \
     CHECK_UNIFORM (u)
 
-static void
-check_shader_status (GLuint shader, GLuint what)
+static void check_shader_status (GLuint shader, GLuint what)
 {
     int res = GL_TRUE;
     glGetShaderiv (shader, what, &res);
@@ -64,8 +66,7 @@ check_shader_status (GLuint shader, GLuint what)
     }
 }
 
-static void
-check_program_status (GLuint program, GLuint what)
+static void check_program_status (GLuint program, GLuint what)
 {
     int res = GL_TRUE;
     glGetProgramiv (program, what, &res);
@@ -94,8 +95,7 @@ struct shader_info
     GLuint type;
 };
 
-static GLuint
-compile_shader (const shader_info &s)
+static GLuint compile_shader (const shader_info &s)
 {
     // Read shader file into local buffer.
     std::ifstream f;
@@ -126,8 +126,7 @@ compile_shader (const shader_info &s)
     return shader;
 }
 
-static GLuint
-prepare_program (std::initializer_list <shader_info> shaders)
+static GLuint prepare_program (std::initializer_list <shader_info> shaders)
 {
     GLuint program = glCreateProgram ();
 
@@ -152,22 +151,182 @@ prepare_program (std::initializer_list <shader_info> shaders)
     return program;
 }
 
-// Camera stuff.
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// CALLBACK declarations
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+static void glfw_error_callback (int error, const char *desc);
+// static void window_size_callback (GLFWwindow *window, int width, int height);
+static void framebuffer_size_callback (GLFWwindow *window, int width, int height);
+// static void character_callback (GLFWwindow *window, unsigned int codepoint);
+static void key_callback (GLFWwindow *window, int key, int scancode, int action, int mods);
+static void mouse_callback (GLFWwindow *window, double xpos, double ypos);
 
-// GLFW stuff.
-/* Callbacks. */
-static void
-glfw_error_callback (int error, const char *desc)
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// INPUT declarations
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+using namespace std::chrono_literals;
+using hiresclock = std::chrono::high_resolution_clock;
+static constexpr auto g_tickrate = 50ms; // 20 ticks per second. 1/20 = 0.05 * 1000 = 50 ms.
+
+class key_event
+{
+public:
+    key_event ()
+        : _pressed {hiresclock::now ()}
+        , _released {_pressed}
+    {}
+
+    ~key_event () = default;
+
+    inline const hiresclock::time_point& pressed() const
+    {
+        return _pressed;
+    }
+
+    inline const hiresclock::time_point& released() const
+    {
+        return _released;
+    }
+
+    inline const bool is_complete () const
+    {
+        return (_released != _pressed);
+    }
+
+    template <class _Unit = std::chrono::seconds>
+    inline const auto time_elapsed () const
+    {
+        return std::chrono::duration_cast <_Unit> (hiresclock::now () - _pressed);
+    }
+
+    inline const auto ticks_elapsed () const
+    {
+        return (time_elapsed <std::chrono::milliseconds> () / g_tickrate);
+    }
+
+    template <class _Unit = std::chrono::seconds>
+    inline const auto time_held () const
+    {
+        assert (is_complete ());
+        return std::chrono::duration_cast <_Unit> (_released - _pressed);
+    }
+
+    inline const auto ticks_held () const
+    {
+        assert (is_complete ());
+        return (time_held <std::chrono::milliseconds> () / g_tickrate);
+    }
+
+private:
+    // TODO: Friend input system class/function, not this global one.
+    friend void key_callback (GLFWwindow*, int, int, int, int);
+
+    hiresclock::time_point _pressed;
+    hiresclock::time_point _released;
+
+    inline void complete ()
+    {
+        assert (_released == _pressed);
+        _released = hiresclock::now ();
+    }
+};
+
+static constexpr std::size_t MAX_NUM_KEYS = 256;
+static std::vector <key_event> g_keys[MAX_NUM_KEYS] = {};
+
+inline const int resolve_scancode (const int key, int scancode);
+const std::vector <key_event> & get_events (const int key, int scancode = -1);
+const std::vector <key_event> get_complete (const int key, int scancode = -1);
+const int count_complete (const int key, int scancode = -1);
+const int key_down (int key, int scancode = -1);
+const int key_up (int key, int scancode = -1);
+const long key_held (int key, int scancode = -1);
+void prune_keys ();
+
+static GLboolean g_is_wireframe = GL_FALSE;
+
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// CAMERA | EYEPOINT | LENS declarations
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+static constexpr glm::vec3 world_up = {0.0f, 1.0f, 0.0f};
+
+class eyepoint
+{
+public:
+    eyepoint ()
+        : _position {0.0f, 0.0f, 1.0f}
+        , _direction {0.0f, 0.0f, -1.0f}
+        , _target {nullptr}
+        , _FOV {45.0f}
+        , _near {0.1f}
+        , _far {100.0f}
+    {}
+
+    void cycle ();
+    void tick ();
+
+    inline glm::mat4 see () const
+    {
+        return glm::lookAt (_position, _position + _direction, world_up);
+    }
+
+    inline void lock_on (const glm::vec3 *const target)
+    {
+        _target = const_cast<glm::vec3*> (target);
+    }
+
+    inline void track (const glm::vec3 *const target)
+    {
+        // TODO: Not implemented;
+    }
+
+private:
+    glm::vec3 _position;
+    glm::vec3 _direction;
+    glm::vec3 *_target;
+public: // TODO: should not be..
+    GLfloat _FOV = 45.0f;
+    GLfloat _near = 0.1f;
+    GLfloat _far = 100.0f;
+};
+
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// GLOBAL variables
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+static auto g_lens = eyepoint {};
+static auto g_projection = glm::mat4 {1.0f};
+
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// CALLBACK definitions
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+static void glfw_error_callback (int error, const char *desc)
 {
     std::cerr << "Error [" << error << "]: " << desc << '\n';
 }
 
-static GLboolean g_is_wireframe = GL_FALSE;
+// static void window_size_callback (GLFWwindow *window, int width, int height)
+// {
+//     std::cout << "Window size: " << width << "x" << height << '\n';
+// }
 
-static void
-key_callback (GLFWwindow *window,
-              int key, int scancode, int action, int mods)
+static void framebuffer_size_callback (GLFWwindow *window,
+                                       int width, int height)
+{
+    glViewport (0, 0, width, height);
+    g_projection = glm::perspective (glm::radians (g_lens._FOV),
+                                     (float) width / (float) height,
+                                     g_lens._near,
+                                     g_lens._far);
+    // std::cout << "Framebuffer size: " << width << "x" << height << '\n';
+}
 
+// static void character_callback (GLFWwindow *window, unsigned int codepoint)
+// {
+//     std::cerr << codepoint; // cerr is automatically flushed.
+// }
+
+static void key_callback (GLFWwindow *window,
+                          int key, int scancode, int action, int mods)
 {
     if (action == GLFW_PRESS)
     {
@@ -200,111 +359,198 @@ key_callback (GLFWwindow *window,
             default:
                 break;
         }
+        // std::cout << "[Async?] Key " << scancode << " pressed now\n";
+
+        g_keys[scancode].emplace_back (key_event {});
     }
-    if ((action == GLFW_PRESS || action == GLFW_REPEAT) && key == GLFW_KEY_T)
+    else if (action == GLFW_RELEASE)
     {
-        std::cout << "Repeat\n";
+        const auto last_idx = g_keys[scancode].size () - 1;
+        if (last_idx > 0)
+        {
+            assert (g_keys[scancode][last_idx - 1].is_complete ());
+        }
+        g_keys[scancode][last_idx].complete ();
+        const auto dd = g_keys[scancode][last_idx].time_held <std::chrono::milliseconds> ();
+        const auto ticks = g_keys[scancode][last_idx].ticks_held ();
+        // std::cout << "[Async?] Key " << scancode << " released after " << dd.count () << " ms or " << ticks << " ticks.\n";
     }
 }
 
-/*
-static void
-window_size_callback (GLFWwindow *window, int width, int height)
+static void mouse_callback (GLFWwindow *window, double xpos, double ypos)
 {
-    // std::cout << "Window size: " << width << "x" << height << '\n';
+    std::cout << "pos (" << xpos << "," << ypos << ")\n";
 }
-*/
 
-struct eyepoint
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// INPUT definitions
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+inline const int resolve_scancode (const int key, int scancode)
 {
-    eyepoint ()
-        : position { 0.0f, 0.0f, 1.0f }
-        , direction { 0.0f, 0.0f, -1.0f }
-        , up { 0.0f, 1.0f, 0.0f }
-        , FOV (45.0f)
-        , near (0.1f)
-        , far (100.0f)
-    {}
-
-    inline glm::mat4 see () const
+    if (key > 0)
     {
-        return glm::lookAt (position, position + direction, up);
+        scancode = glfwGetKeyScancode (key);
     }
+    assert (scancode > 0);
+    return scancode;
+}
 
-    inline glm::mat4 follow () const
+const std::vector <key_event> & get_events (const int key, int scancode)
+{
+    scancode = resolve_scancode (key, scancode);
+    return g_keys[scancode];
+}
+
+const std::vector <key_event> get_complete (const int key, int scancode)
+{
+    scancode = resolve_scancode (key, scancode);
+    auto complete_events = std::vector <key_event> {};
+
+    for (const auto &e : g_keys[scancode])
+        if (e.is_complete ())
+            complete_events.push_back (e);
+
+    return complete_events;
+}
+
+const int count_complete (const int key, int scancode) // TODO: same as key_up
+{
+    scancode = resolve_scancode (key, scancode);
+    int count = 0;
+
+    for (const auto &e : g_keys[scancode])
+        if (e.is_complete ())
+            ++count;
+
+    return count;
+}
+
+const int key_down (const int key, int scancode)
+{
+    scancode = resolve_scancode (key, scancode);
+    std::size_t downs_in_cur_tick = g_keys[scancode].size ();
+    if (downs_in_cur_tick == 0)
+        return 0;
+
+    const key_event &first = g_keys[scancode].front ();
+    if (first.ticks_elapsed () > 0L)
+        --downs_in_cur_tick;
+
+    return static_cast <int> (downs_in_cur_tick);
+}
+
+const int key_up (const int key, int scancode) // TODO: same as count_complete
+{
+    return count_complete (key, scancode);
+}
+
+const long key_held (const int key, int scancode)
+{
+    scancode = resolve_scancode (key, scancode);
+    if (g_keys[scancode].size () == 0)
+        return false;
+
+    const key_event &last = g_keys[scancode].back ();
+    return (last.is_complete () ? 0L : last.ticks_elapsed ());
+}
+
+void prune_keys ()
+{
+    for (int i = 0; i < MAX_NUM_KEYS; ++i)
     {
-        return glm::lookAt (position, target, up);
+        std::erase_if (g_keys[i], [] (const key_event &e)
+        {
+            return e.is_complete ();
+        });
+    }
+}
+
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// CAMERA | EYEPOINT | LENS definitions
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+void eyepoint::cycle ()
+{}
+
+void eyepoint::tick ()
+{
+    static constexpr GLfloat slow_walk = {0.001f};
+    static constexpr GLfloat norm_walk = {0.1f};
+
+    // auto translation = glm::mat4 {1.0f};
+    // const auto &state = get_events (GLFW_KEY_W);
+
+    if (key_down (GLFW_KEY_T))
+    {
+        if (_target && key_down (GLFW_KEY_T))
+        {
+            lock_on (nullptr);
+            std::cout << "[Tick] Stopped following.\n";
+        }
+        else
+        {
+            static constexpr glm::vec3 target = {0.0f, 0.0f, 0.0f};
+            lock_on (&target);
+            std::cout << "[Tick] Following origin.\n";
+        }
     }
 
-    glm::vec3 position;
-    glm::vec3 direction;
-    glm::vec3 target;
-    glm::vec3 up;
-    GLfloat FOV = 45.0f;
-    GLfloat near = 0.1f;
-    GLfloat far = 100.0f;
-} g_lens;
+    if (_target)
+    {
+        _direction = *_target - _position;
+    }
+    else
+    {
+        // Get input from mouse for orientation.
+    }
 
-static glm::mat4 g_projection (1.0f);
+    // if (key_up (GLFW_KEY_W))
+    // {
+    //     std::cout << "[Tick] Little step forward.\n";
+    //     _position += slow_walk * _direction;
+    // }
+    // if (key_up (GLFW_KEY_S))
+    // {
+    //     std::cout << "[Tick] Little step backward.\n";
+    //     _position -= slow_walk * _direction;
+    // }
 
-static void
-framebuffer_size_callback (GLFWwindow *window, int width, int height)
-{
-    glViewport (0, 0, width, height);
-    g_projection = glm::perspective (glm::radians (g_lens.FOV),
-                                     (float) width / (float) height,
-                                     g_lens.near,
-                                     g_lens.far);
-    // std::cout << "Framebuffer size: " << width << "x" << height << '\n';
+    if (key_held (GLFW_KEY_W))
+    {
+        std::cout << "[Tick] Bigger step forward.\n";
+        _position += norm_walk * _direction;
+    }
+    if (key_held (GLFW_KEY_S))
+    {
+        std::cout << "[Tick] Bigger step backward.\n";
+        _position -= norm_walk * _direction;
+    }
+    if (key_held (GLFW_KEY_A))
+    {
+        std::cout << "[Tick] Bigger step left.\n";
+        _position -= norm_walk * glm::normalize(glm::cross(_direction, world_up));
+    }
+    if (key_held (GLFW_KEY_D))
+    {
+        std::cout << "[Tick] Bigger step right.\n";
+        _position += norm_walk * glm::normalize(glm::cross(_direction, world_up));
+    }
+    std::cout << "Position " << glm::to_string (_position) << '\n';
 }
 
-/*
-void character_callback(GLFWwindow* window, unsigned int codepoint)
-{
-    std::cerr << codepoint; // cerr is automatically flushed.
-}
-*/
-
-void
-clean_glfw (GLFWwindow *window)
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// MAIN
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+void clean_glfw (GLFWwindow *window)
 {
     glfwDestroyWindow (window);
     glfwTerminate ();
 }
 
+#define ENABLE_CRAPPY_BUILD 0
 
-using namespace std::string_view_literals;
-
-static constexpr shared::map <std::string_view, int, 3> actions = 
-    {{
-        { "jump"sv, GLFW_KEY_SPACE },
-        { "walk"sv, GLFW_KEY_W },
-        { "run"sv, GLFW_KEY_LEFT_SHIFT }
-    }};
-
-static constexpr shared::map <int, double, 3> actions2 = 
-    {{
-        { GLFW_KEY_SPACE, 2.4 },
-        { GLFW_KEY_W, 3.0 },
-        { GLFW_KEY_LEFT_SHIFT, 0.3213 }
-    }};
-
-
-int
-main (int argc, char **argv)
+int main (int argc, char **argv)
 {
-    std::cout << "CRAPPY BUILD!!!\n";
-
-    double key = shared::lookup (actions2, shared::lookup (actions, "jump"));
-    std::cout << key << '\n';
-
-    key = shared::lookup (actions2, shared::lookup (actions, "walk"));
-    std::cout << key << '\n';
-
-    key = shared::lookup (actions2, shared::lookup (actions, "run"));
-    std::cout << key << '\n';
-
-    return 0;
+    spdlog::info ("[Main] Welcome to {} from spdlog!", "Blockytry");
     std::cout << "Blockytry " << BLOCKYTRY_VERSION_STRING << '\n';
 
     // Set error callback.
@@ -316,6 +562,16 @@ main (int argc, char **argv)
         std::cerr << "Failed to initialize GLFW.\n";
         return 1;
     }
+#if ENABLE_CRAPPY_BUILD
+    std::cout << "CRAPPY BUILD INCOMING\n";
+
+    for (int i = 0; i < MAX_NUM_KEYS; ++i)
+    {
+        std::cout << g_keys[i].size () << " events for key " << i << '\n';
+    }
+
+    return 0;
+#endif
     std::cout << "GLFW " << glfwGetVersionString () << '\n';
 
     // Let OpenGL know we want to use the programmable pipeline.
@@ -327,8 +583,8 @@ main (int argc, char **argv)
     glfwWindowHint (GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create a windowed mode window and make its context current
-    int width = 640;
-    int height = 480;
+    int width = 1024;
+    int height = 720;
     GLFWwindow *window = glfwCreateWindow (width, height,
                                            "Blockytry",
                                            nullptr, nullptr);
@@ -357,11 +613,16 @@ main (int argc, char **argv)
     std::cout << "Driver version " << glGetString (GL_VERSION) << '\n';
     std::cout << "Device vendor " << glGetString (GL_RENDERER) << '\n';
 
-    // Set callbacks.
-    glfwSetKeyCallback (window, key_callback);
+    glfwSetInputMode (window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    if (glfwRawMouseMotionSupported ())
+        glfwSetInputMode (window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
+    // Set other callbacks.
     // glfwSetWindowSizeCallback (window, window_size_callback);
     glfwSetFramebufferSizeCallback (window, framebuffer_size_callback);
     // glfwSetCharCallback(window, character_callback);
+    glfwSetKeyCallback (window, key_callback);
+    glfwSetCursorPosCallback (window, mouse_callback);
 
     // Setup cube geometry.
     const glm::vec3 caca (0.0f, 0.0f, 0.0f);
@@ -440,30 +701,45 @@ main (int argc, char **argv)
     const GLfloat radius = 0.5f;
     GLfloat time = 0.0f;
 
-    g_lens.direction = { 0.0f, 0.0f, 0.0f };
-
-    g_projection = glm::perspective (glm::radians (g_lens.FOV),
+    g_projection = glm::perspective (glm::radians (g_lens._FOV),
                                      (float) width / (float) height,
-                                     g_lens.near,
-                                     g_lens.far);
+                                     g_lens._near,
+                                     g_lens._far);
 
-    shared::counter_down <GLuint> key_recurrence_counter;
-    key_recurrence_counter.reset (10U);
-
+    glfwSwapInterval (0); // TODO: Figure out game loop.
+    auto cur_time = hiresclock::now ();
+    auto last_time = cur_time;
+    auto dt = std::chrono::duration_cast <std::chrono::milliseconds> (cur_time - last_time);
     // Loop until the user closes the window
     while (! glfwWindowShouldClose (window))
     {
+        // Handle some inputs.
+        cur_time = hiresclock::now ();
+        dt = std::chrono::duration_cast <std::chrono::milliseconds> (cur_time - last_time);
+        // std::cout << "Outer dt " << dt.count () << '\n';
+        const bool tick_this_cycle = dt >= g_tickrate;
+        if (tick_this_cycle)
+        {
+            std::cout << "dt " << dt.count () << '\n';
+            g_lens.tick ();
+            last_time = cur_time;
+            prune_keys ();
+        }
+
+        g_lens.cycle ();
+
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
         glClearBufferfv (GL_COLOR, 0, background_color);
 
         glUseProgram (prog);
         glBindVertexArray (vao);
 
-        time = static_cast<GLfloat> (glfwGetTime () * speed);
-        g_lens.position = glm::vec3 (glm::sin (time) * radius,
-                                     0.0f,
-                                     glm::cos (time) * radius);
-        glm::mat4 view = glm::lookAt (g_lens.position, g_lens.direction, g_lens.up);
+        // time = static_cast<GLfloat> (glfwGetTime () * speed);
+        // g_lens.position = glm::vec3 (glm::sin (time) * radius,
+        //                              0.0f,
+        //                              glm::cos (time) * radius);
+        // glm::mat4 view = glm::lookAt (g_lens.position, g_lens.direction, g_lens.up);
+        glm::mat4 view = g_lens.see ();
         glm::mat4 model (1.0f);
         model = glm::translate (model, caca);
 
