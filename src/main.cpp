@@ -20,6 +20,34 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/string_cast.hpp>
 
+#include <core/runtime.hpp>
+
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// DEBUG macros
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+#ifndef NDEBUG
+    #define FOST_DEBUG
+#endif
+
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+// LOGGING
+// -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+static bool logging_can_be_used = true;
+
+#ifdef FOST_DEBUG
+    #define FOST_ASSERT(expr, msg) assert(( (void)(msg), (expr) ))
+
+    #define FOST_LOG_INFO(...) \
+        do \
+        { \
+            FOST_ASSERT (logging_can_be_used, "Attempt to log time reported by glfwGetTime() when glfw not initialized!"); \
+            spdlog::info (__VA_ARGS__); \
+        } while (0)
+#else
+    #define FOST_ASSERT(...)
+    #define FOST_LOG_INFO(...)
+#endif
+
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // SHADERS
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -163,26 +191,23 @@ static void mouse_callback (GLFWwindow *window, double xpos, double ypos);
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // INPUT declarations
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-using namespace std::chrono_literals;
-using hiresclock = std::chrono::high_resolution_clock;
-static constexpr auto g_tickrate = 50ms; // 20 ticks per second. 1/20 = 0.05 * 1000 = 50 ms.
 
 class key_event
 {
 public:
     key_event ()
-        : _pressed {hiresclock::now ()}
+        : _pressed {fost::clock::now ()}
         , _released {_pressed}
     {}
 
     ~key_event () = default;
 
-    inline const hiresclock::time_point& pressed() const
+    inline const fost::clock::time_point & pressed() const
     {
         return _pressed;
     }
 
-    inline const hiresclock::time_point& released() const
+    inline const fost::clock::time_point & released() const
     {
         return _released;
     }
@@ -192,18 +217,18 @@ public:
         return (_released != _pressed);
     }
 
-    template <class _Unit = std::chrono::seconds>
+    template <class _Unit = std::chrono::milliseconds>
     inline const auto time_elapsed () const
     {
-        return std::chrono::duration_cast <_Unit> (hiresclock::now () - _pressed);
+        return std::chrono::duration_cast <_Unit> (fost::clock::now () - _pressed);
     }
 
     inline const auto ticks_elapsed () const
     {
-        return (time_elapsed <std::chrono::milliseconds> () / g_tickrate);
+        return (time_elapsed () / fost::runtime::mspt ());
     }
 
-    template <class _Unit = std::chrono::seconds>
+    template <class _Unit = std::chrono::milliseconds>
     inline const auto time_held () const
     {
         assert (is_complete ());
@@ -213,20 +238,20 @@ public:
     inline const auto ticks_held () const
     {
         assert (is_complete ());
-        return (time_held <std::chrono::milliseconds> () / g_tickrate);
+        return (time_held () / fost::runtime::mspt ());
     }
 
 private:
     // TODO: Friend input system class/function, not this global one.
     friend void key_callback (GLFWwindow*, int, int, int, int);
 
-    hiresclock::time_point _pressed;
-    hiresclock::time_point _released;
+    fost::clock::time_point _pressed;
+    fost::clock::time_point _released;
 
     inline void complete ()
     {
         assert (_released == _pressed);
-        _released = hiresclock::now ();
+        _released = fost::clock::now ();
     }
 };
 
@@ -242,7 +267,8 @@ const int key_up (int key, int scancode = -1);
 const long key_held (int key, int scancode = -1);
 void prune_keys ();
 
-static GLboolean g_is_wireframe = GL_FALSE;
+static GLboolean g_wireframe = GL_FALSE;
+static GLboolean g_vsync = GL_FALSE;
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // CAMERA | EYEPOINT | LENS declarations
@@ -337,7 +363,7 @@ static void key_callback (GLFWwindow *window,
             case GLFW_KEY_W:
                 if (mods & GLFW_MOD_SHIFT)
                 {
-                    if (g_is_wireframe)
+                    if (g_wireframe)
                     {
                         glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
                         // std::cout << "Wireframe disabled\n";
@@ -347,7 +373,14 @@ static void key_callback (GLFWwindow *window,
                         glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
                         // std::cout << "Wireframe enabled\n";
                     }
-                    g_is_wireframe = ! g_is_wireframe;
+                    g_wireframe = ! g_wireframe;
+                }
+                break;
+            case GLFW_KEY_V:
+                if (mods & GLFW_MOD_SHIFT)
+                {
+                    g_vsync = ! g_vsync;
+                    glfwSwapInterval (g_vsync);
                 }
                 break;
             case GLFW_KEY_ENTER:
@@ -370,8 +403,8 @@ static void key_callback (GLFWwindow *window,
             assert (g_keys[scancode][last_idx - 1].is_complete ());
         }
         g_keys[scancode][last_idx].complete ();
-        const auto dd = g_keys[scancode][last_idx].time_held <std::chrono::milliseconds> ();
-        const auto ticks = g_keys[scancode][last_idx].ticks_held ();
+        // const auto dd = g_keys[scancode][last_idx].time_held <std::chrono::milliseconds> ();
+        // const auto ticks = g_keys[scancode][last_idx].ticks_held ();
         // std::cout << "[Async?] Key " << scancode << " released after " << dd.count () << " ms or " << ticks << " ticks.\n";
     }
 }
@@ -472,8 +505,8 @@ void eyepoint::cycle ()
 
 void eyepoint::tick ()
 {
-    static constexpr GLfloat slow_walk = {0.001f};
-    static constexpr GLfloat norm_walk = {0.1f};
+    static constexpr GLfloat slow_walk = {0.1f};
+    static constexpr GLfloat norm_walk = {1.0f};
 
     // auto translation = glm::mat4 {1.0f};
     // const auto &state = get_events (GLFW_KEY_W);
@@ -526,7 +559,7 @@ void eyepoint::tick ()
     if (key_held (GLFW_KEY_A))
     {
         std::cout << "[Tick] Bigger step left.\n";
-        _position -= norm_walk * glm::normalize(glm::cross(_direction, world_up));
+        _position -= norm_walk * glm::normalize(glm::cross(_direction, world_up)) * std::chrono::duration <float> (fost::runtime::mspt ()).count ();
     }
     if (key_held (GLFW_KEY_D))
     {
@@ -547,9 +580,13 @@ void clean_glfw (GLFWwindow *window)
 
 #define ENABLE_CRAPPY_BUILD 0
 
+#if ENABLE_CRAPPY_BUILD
+
+#endif
+
 int main (int argc, char **argv)
 {
-    spdlog::info ("[Main] Welcome to {} from spdlog!", "Blockytry");
+    FOST_LOG_INFO ("Welcome to {} from spdlog!", "Blockytry");
     std::cout << "Blockytry " << BLOCKYTRY_VERSION_STRING << '\n';
 
     // Set error callback.
@@ -561,14 +598,12 @@ int main (int argc, char **argv)
         std::cerr << "Failed to initialize GLFW.\n";
         return 1;
     }
+    logging_can_be_used = true;
 #if ENABLE_CRAPPY_BUILD
-    std::cout << "CRAPPY BUILD INCOMING\n";
 
-    for (int i = 0; i < MAX_NUM_KEYS; ++i)
-    {
-        std::cout << g_keys[i].size () << " events for key " << i << '\n';
-    }
+    std::cout << fost::runtime::tps () << '\n';
 
+    glfwTerminate ();
     return 0;
 #endif
     std::cout << "GLFW " << glfwGetVersionString () << '\n';
@@ -705,27 +740,39 @@ int main (int argc, char **argv)
                                      g_lens._near,
                                      g_lens._far);
 
-    glfwSwapInterval (0); // TODO: Figure out game loop.
-    auto cur_time = hiresclock::now ();
-    auto last_time = cur_time;
-    auto dt = std::chrono::duration_cast <std::chrono::milliseconds> (cur_time - last_time);
+    FOST_LOG_INFO ("Tickrate: {} mspt | {} tps", fost::runtime::mspt ().count (), fost::runtime::tps ());
+
+    fost::clock::duration accumulator = {0ns};
+    fost::clock::time_point t {};
+
+    // TODO: Figure out game loop.
+    glfwSwapInterval (g_vsync);
     // Loop until the user closes the window
     while (! glfwWindowShouldClose (window))
     {
-        // Handle some inputs.
-        cur_time = hiresclock::now ();
-        dt = std::chrono::duration_cast <std::chrono::milliseconds> (cur_time - last_time);
-        // std::cout << "Outer dt " << dt.count () << '\n';
-        const bool tick_this_cycle = dt >= g_tickrate;
-        if (tick_this_cycle)
-        {
-            std::cout << "dt " << dt.count () << '\n';
-            g_lens.tick ();
-            last_time = cur_time;
-            prune_keys ();
-        }
+        // FOST_LOG_INFO ("Frame debug: {}ms dt | {} fps", fost::runtime::frametime ().count (), fost::runtime::fps ());
+        // IMPORTANT! Must cycle runtime to advance simulation (calculates delta time).
+        fost::runtime::cycle ();
+        auto deltatime = fost::runtime::frametime ();
 
-        g_lens.cycle ();
+        if (deltatime > 250ms)
+            deltatime = 250ms;
+
+        accumulator += deltatime;
+
+        // Handle some inputs.
+        g_lens.cycle (); // ???????
+
+        while (accumulator >= fost::runtime::mspt ())
+        {
+            std::cout << "dt " << deltatime.count () << '\n';
+
+            g_lens.tick ();
+
+            prune_keys ();
+            t += fost::runtime::mspt ();
+            accumulator -= fost::runtime::mspt ();
+        }
 
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
         glClearBufferfv (GL_COLOR, 0, background_color);

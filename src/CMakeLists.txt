@@ -8,6 +8,7 @@ target_include_directories (glad PUBLIC "${CMAKE_SOURCE_DIR}/include/glad")
 add_executable (blockytry)
 
 target_sources (blockytry PRIVATE
+    "core/runtime.cpp"
     "main.cpp"
 )
 
