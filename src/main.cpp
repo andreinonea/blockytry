@@ -225,7 +225,7 @@ public:
 
     inline const auto ticks_elapsed () const
     {
-        return (time_elapsed () / fost::runtime::mspt ());
+        return (time_elapsed () / fost::runtime::mspt);
     }
 
     template <class _Unit = std::chrono::milliseconds>
@@ -238,7 +238,7 @@ public:
     inline const auto ticks_held () const
     {
         assert (is_complete ());
-        return (time_held () / fost::runtime::mspt ());
+        return (time_held () / fost::runtime::mspt);
     }
 
 private:
@@ -287,8 +287,8 @@ public:
         , _far {100.0f}
     {}
 
-    void cycle ();
-    void tick ();
+    void cycle (const std::chrono::duration<float> dt);
+    void tick (const std::chrono::duration<float> dt);
 
     inline glm::mat4 see () const
     {
@@ -313,6 +313,9 @@ public: // TODO: should not be..
     GLfloat _FOV = 45.0f;
     GLfloat _near = 0.1f;
     GLfloat _far = 100.0f;
+private: // TODO: should not exist..
+    static std::chrono::duration<float> elapsed;
+    static glm::vec3 prev_pos;
 };
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -361,7 +364,7 @@ static void key_callback (GLFWwindow *window,
                 glfwSetWindowShouldClose (window, GLFW_TRUE);
                 break;
             case GLFW_KEY_W:
-                if (mods & GLFW_MOD_SHIFT)
+                if (mods & GLFW_MOD_CONTROL)
                 {
                     if (g_wireframe)
                     {
@@ -377,7 +380,7 @@ static void key_callback (GLFWwindow *window,
                 }
                 break;
             case GLFW_KEY_V:
-                if (mods & GLFW_MOD_SHIFT)
+                if (mods & GLFW_MOD_CONTROL)
                 {
                     g_vsync = ! g_vsync;
                     glfwSwapInterval (g_vsync);
@@ -500,22 +503,34 @@ void prune_keys ()
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // CAMERA | EYEPOINT | LENS definitions
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-void eyepoint::cycle ()
-{}
-
-void eyepoint::tick ()
+std::chrono::duration<float> eyepoint::elapsed {};
+glm::vec3 eyepoint::prev_pos {};
+void eyepoint::cycle (const std::chrono::duration<float> dt)
 {
+    elapsed += dt;
+    if (elapsed >= 1s)
+    {
+        elapsed = 0s;
+        FOST_LOG_INFO ("Moved {} units in 1 second", glm::to_string (glm::abs (_position - prev_pos)));
+        FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
+        prev_pos = _position;
+    }
+
+}
+
+void eyepoint::tick (const std::chrono::duration<float> dt)
+{
+    // std::cout << "[tick] dit: " << (dt / 1s) << '\n';
+
     static constexpr GLfloat slow_walk = {0.1f};
     static constexpr GLfloat norm_walk = {1.0f};
-
-    // auto translation = glm::mat4 {1.0f};
-    // const auto &state = get_events (GLFW_KEY_W);
 
     if (key_down (GLFW_KEY_T))
     {
         if (_target && key_down (GLFW_KEY_T))
         {
             lock_on (nullptr);
+            _direction = glm::normalize (_direction);
             std::cout << "[Tick] Stopped following.\n";
         }
         else
@@ -533,40 +548,30 @@ void eyepoint::tick ()
     else
     {
         // Get input from mouse for orientation.
+        // _direction = glm::normalize (_direction);
     }
-
-    // if (key_up (GLFW_KEY_W))
-    // {
-    //     std::cout << "[Tick] Little step forward.\n";
-    //     _position += slow_walk * _direction;
-    // }
-    // if (key_up (GLFW_KEY_S))
-    // {
-    //     std::cout << "[Tick] Little step backward.\n";
-    //     _position -= slow_walk * _direction;
-    // }
 
     if (key_held (GLFW_KEY_W))
     {
-        std::cout << "[Tick] Bigger step forward.\n";
-        _position += norm_walk * _direction;
+        // std::cout << "[Tick] Bigger step forward.\n";
+        _position += norm_walk * _direction * (dt / 1s);
     }
     if (key_held (GLFW_KEY_S))
     {
-        std::cout << "[Tick] Bigger step backward.\n";
-        _position -= norm_walk * _direction;
+        // std::cout << "[Tick] Bigger step backward.\n";
+        _position -= norm_walk * _direction * (dt / 1s);
     }
     if (key_held (GLFW_KEY_A))
     {
-        std::cout << "[Tick] Bigger step left.\n";
-        _position -= norm_walk * glm::normalize(glm::cross(_direction, world_up)) * std::chrono::duration <float> (fost::runtime::mspt ()).count ();
+        // std::cout << "[Tick] Bigger step left.\n";
+        _position -= norm_walk * glm::normalize(glm::cross(_direction, world_up)) * (dt / 1s);
     }
     if (key_held (GLFW_KEY_D))
     {
-        std::cout << "[Tick] Bigger step right.\n";
-        _position += norm_walk * glm::normalize(glm::cross(_direction, world_up));
+        // std::cout << "[Tick] Bigger step right.\n";
+        _position += norm_walk * glm::normalize(glm::cross(_direction, world_up)) * (dt / 1s);
     }
-    std::cout << "Position " << glm::to_string (_position) << '\n';
+    // std::cout << "Position " << glm::to_string (_position) << '\n';
 }
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -740,10 +745,10 @@ int main (int argc, char **argv)
                                      g_lens._near,
                                      g_lens._far);
 
-    FOST_LOG_INFO ("Tickrate: {} mspt | {} tps", fost::runtime::mspt ().count (), fost::runtime::tps ());
+    FOST_LOG_INFO ("Tickrate: {} mspt | {} tps", fost::runtime::mspt.count (), fost::runtime::tps);
 
-    fost::clock::duration accumulator = {0ns};
-    fost::clock::time_point t {};
+    fost::runtime::duration accumulator {0s};
+    fost::runtime::time_point t {};
 
     // TODO: Figure out game loop.
     glfwSwapInterval (g_vsync);
@@ -753,25 +758,25 @@ int main (int argc, char **argv)
         // FOST_LOG_INFO ("Frame debug: {}ms dt | {} fps", fost::runtime::frametime ().count (), fost::runtime::fps ());
         // IMPORTANT! Must cycle runtime to advance simulation (calculates delta time).
         fost::runtime::cycle ();
-        auto deltatime = fost::runtime::frametime ();
+        auto delta_time = fost::runtime::frame_time ();
 
-        if (deltatime > 250ms)
-            deltatime = 250ms;
+        if (delta_time > 250ms)
+            delta_time = 250ms;
 
-        accumulator += deltatime;
+        accumulator += delta_time;
 
         // Handle some inputs.
-        g_lens.cycle (); // ???????
+        g_lens.cycle (fost::runtime::frame_time ()); // ???????
 
-        while (accumulator >= fost::runtime::mspt ())
+        while (accumulator >= fost::runtime::tick_unit)
         {
-            std::cout << "dt " << deltatime.count () << '\n';
+            // std::cout << "dt " << delta_time.count () << '\n';
 
-            g_lens.tick ();
+            g_lens.tick (fost::runtime::tick_unit);
 
             prune_keys ();
-            t += fost::runtime::mspt ();
-            accumulator -= fost::runtime::mspt ();
+            t += fost::runtime::tick_unit;
+            accumulator -= fost::runtime::tick_unit;
         }
 
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };

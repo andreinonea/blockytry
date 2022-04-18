@@ -16,24 +16,24 @@ static const system_clock::time_point s_beginning = system_clock::now ();
 static const system_clock::time_point s_prev_beginning = s_beginning; // TODO: load from configuration file.
 
 // Time point when the latest frame was produced.
-static clock::time_point s_last_frame = clock::now ();
+static time_point s_last_frame = clock::now ();
 
 // Time taken to produce last frame.
-static std::chrono::nanoseconds s_frametime = 0ns;
+static duration s_frametime = zero;
 
 // Frames per second.
-static float s_fps = 0U;
+static float s_fps = 0.0f;
 
 void cycle ()
 {
-    const auto now = clock::now ();
+    const time_point now = clock::now ();
     s_frametime = now - s_last_frame;
 #if 0
-    if (s_frametime != 0ns)
-        s_fps = 1.0 / std::chrono::duration <float> (s_frametime).count ();
+    if (s_frametime != zero)
+        s_fps = 1.0f / std::chrono::duration <float> (s_frametime).count ();
 #else
-    assert (s_frametime != 0ns);
-    s_fps = 1.0 / std::chrono::duration <float> (s_frametime).count ();
+    assert (s_frametime != zero);
+    s_fps = 1.0f / std::chrono::duration <float> (s_frametime).count ();
 #endif
     s_last_frame = now;
 }
@@ -58,7 +58,7 @@ const system_clock::duration get ()
     return (system_clock::now () - s_beginning);
 }
 
-const std::chrono::nanoseconds frametime ()
+const duration frame_time ()
 {
     return s_frametime;
 }
