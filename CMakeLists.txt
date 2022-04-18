@@ -42,3 +42,4 @@ if (PROJECT_VERSION VERSION_LESS 0.1.0)
 endif()
 
 add_subdirectory (src)
+add_subdirectory (tools/framegrapher)
