@@ -1,8 +1,21 @@
 add_library (glad STATIC)
-
 target_sources (glad PRIVATE "glad/gl.cpp")
-
 target_include_directories (glad PUBLIC "${CMAKE_SOURCE_DIR}/include/glad")
+
+add_library (imgui STATIC)
+target_sources (imgui PRIVATE
+    "imgui/imgui_demo.cpp"
+    "imgui/imgui_draw.cpp"
+    "imgui/imgui_impl_glfw.cpp"
+    "imgui/imgui_impl_opengl3.cpp"
+    "imgui/imgui_tables.cpp"
+    "imgui/imgui_widgets.cpp"
+    "imgui/imgui.cpp"
+    "imgui/implot_demo.cpp"
+    "imgui/implot_items.cpp"
+    "imgui/implot.cpp"
+)
+target_include_directories (imgui PUBLIC "${CMAKE_SOURCE_DIR}/include/imgui")
 
 
 add_executable (blockytry)
@@ -17,6 +30,7 @@ target_link_libraries (blockytry PRIVATE
     glfw
     glm::glm
     spdlog::spdlog
+    imgui
 )
 
 configure_file ("${CMAKE_SOURCE_DIR}/include/version.hpp.in"
