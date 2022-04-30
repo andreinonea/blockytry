@@ -301,14 +301,23 @@ public:
         return glm::lookAt (_position, _position + _direction, world_up);
     }
 
+    // Fix eyes on target - strict version.
     inline void lock_on (const glm::vec3 *const target)
     {
         _target = const_cast<glm::vec3*> (target);
     }
 
+    // Follow target as long as physically feasible (e.g. if moving forwards and
+    // target leaves possible angles of head rotation, stop following, unless
+    // trunk moves as well and tracking becomes possible again).
     inline void track (const glm::vec3 *const target)
     {
         // TODO: Not implemented;
+    }
+
+    inline const glm::vec3 & get_pos ()
+    {
+        return _position;
     }
 
 private:
@@ -375,12 +384,12 @@ static void key_callback (GLFWwindow *window,
                     if (g_wireframe)
                     {
                         glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
-                        // std::cout << "Wireframe disabled\n";
+                        std::cout << "Wireframe disabled\n";
                     }
                     else
                     {
                         glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
-                        // std::cout << "Wireframe enabled\n";
+                        std::cout << "Wireframe enabled\n";
                     }
                     g_wireframe = ! g_wireframe;
                 }
@@ -390,6 +399,7 @@ static void key_callback (GLFWwindow *window,
                 {
                     g_vsync = ! g_vsync;
                     glfwSwapInterval (g_vsync);
+                    std::cout << "Vsync " << static_cast <int> (g_vsync) << '\n';
                 }
                 break;
             case GLFW_KEY_ENTER:
@@ -420,7 +430,7 @@ static void key_callback (GLFWwindow *window,
 
 static void mouse_callback (GLFWwindow *window, double xpos, double ypos)
 {
-    std::cout << "pos (" << xpos << "," << ypos << ")\n";
+    // std::cout << "pos (" << xpos << "," << ypos << ")\n";
 }
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -526,7 +536,7 @@ void eyepoint::cycle (const std::chrono::duration<float> dt)
 
 void eyepoint::tick (const std::chrono::duration<float> dt)
 {
-    // std::cout << "[tick] dit: " << (dt / 1s) << '\n';
+    // std::cout << "[tick] dt: " << (dt / 1s) << '\n';
 
     static constexpr GLfloat slow_walk = {0.1f};
     static constexpr GLfloat norm_walk = {1.0f};
@@ -536,47 +546,53 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
         if (_target && key_down (GLFW_KEY_T))
         {
             lock_on (nullptr);
-            _direction = glm::normalize (_direction);
             std::cout << "[Tick] Stopped following.\n";
         }
         else
         {
             static constexpr glm::vec3 target = {0.0f, 0.0f, 0.0f};
             lock_on (&target);
+            _direction = glm::normalize (*_target - _position);
             std::cout << "[Tick] Following origin.\n";
         }
     }
 
-    if (_target)
-    {
-        _direction = *_target - _position;
-    }
-    else
+    // TODO: Get mouse input already!
+    if (! _target)
     {
         // Get input from mouse for orientation.
-        // _direction = glm::normalize (_direction);
+        _direction = glm::normalize (_direction);
     }
 
     if (key_held (GLFW_KEY_W))
     {
         // std::cout << "[Tick] Bigger step forward.\n";
-        _position += norm_walk * _direction * (dt / 1s);
+        _position += _direction * norm_walk * (dt / 1s);
     }
     if (key_held (GLFW_KEY_S))
     {
         // std::cout << "[Tick] Bigger step backward.\n";
-        _position -= norm_walk * _direction * (dt / 1s);
+        _position -= _direction * norm_walk * (dt / 1s);
     }
     if (key_held (GLFW_KEY_A))
     {
         // std::cout << "[Tick] Bigger step left.\n";
-        _position -= norm_walk * glm::normalize(glm::cross(_direction, world_up)) * (dt / 1s);
+        _position -= glm::normalize (glm::cross (_direction, world_up)) * norm_walk * (dt / 1s);
     }
     if (key_held (GLFW_KEY_D))
     {
         // std::cout << "[Tick] Bigger step right.\n";
-        _position += norm_walk * glm::normalize(glm::cross(_direction, world_up)) * (dt / 1s);
+        _position += glm::normalize (glm::cross (_direction, world_up)) * norm_walk * (dt / 1s);
     }
+
+    // Known bug: because movement is not happening in a circle, each movement
+    // will see the eyepoint moving further away from the target. This is too
+    // insignificant to involve trigonometrics into this.
+    if (_target)
+    {
+        _direction = glm::normalize (*_target - _position);
+    }
+
     // std::cout << "Position " << glm::to_string (_position) << '\n';
 }
 
@@ -720,8 +736,8 @@ int main (int argc, char **argv)
     bool show_another_window = false;
 
     // Setup cube geometry.
-    const glm::vec3 caca (0.0f, 0.0f, 0.0f);
-    const glm::vec3 pos = {0.0f, 0.0f, 0.0f};
+    const glm::vec3 origin {0.0f, 0.0f, 0.0f};
+    const glm::vec3 pos {0.0f, 0.0f, 0.0f};
     const GLfloat scale = 0.1f;
 
     const GLfloat vertices[24] = {
@@ -825,6 +841,7 @@ int main (int argc, char **argv)
         accumulator += delta_time;
 
         g_lens.cycle (fost::runtime::frame_time ()); // TODO: ?
+        glm::mat4 view;
 
         // Update
         while (accumulator >= fost::runtime::tick_unit)
@@ -832,6 +849,7 @@ int main (int argc, char **argv)
             // std::cout << "dt " << delta_time.count () << '\n';
 
             g_lens.tick (fost::runtime::tick_unit);
+            view = g_lens.see ();
 
             prune_keys ();
             t += fost::runtime::tick_unit;
@@ -860,15 +878,17 @@ int main (int argc, char **argv)
         //                              0.0f,
         //                              glm::cos (time) * radius);
         // glm::mat4 view = glm::lookAt (g_lens.position, g_lens.direction, g_lens.up);
-        glm::mat4 view = g_lens.see ();
-        glm::mat4 model (1.0f);
-        model = glm::translate (model, caca);
 
-        glUniformMatrix4fv (u_view, 1, GL_FALSE, &view[0][0]);
-        glUniformMatrix4fv (u_projection, 1, GL_FALSE, &g_projection[0][0]);
-        glUniformMatrix4fv (u_model, 1, GL_FALSE, &model[0][0]);
+        {
+            glm::mat4 model (1.0f);
+            model = glm::translate (model, origin);
 
-        glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
+            glUniformMatrix4fv (u_model, 1, GL_FALSE, &model[0][0]);
+            glUniformMatrix4fv (u_view, 1, GL_FALSE, &view[0][0]);
+            glUniformMatrix4fv (u_projection, 1, GL_FALSE, &g_projection[0][0]);
+
+            glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
+        }
 
         ImGui_ImplOpenGL3_RenderDrawData (ImGui::GetDrawData ());
 
