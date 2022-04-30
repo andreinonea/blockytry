@@ -9,6 +9,7 @@
 #include <iostream>
 #include <sstream>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -25,6 +26,7 @@
 #include <glm/gtx/string_cast.hpp>
 
 #include <core/runtime.hpp>
+#include <core/cpu_profiler.hpp>
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // DEBUG macros
@@ -515,11 +517,11 @@ void eyepoint::cycle (const std::chrono::duration<float> dt)
     if (elapsed >= 1s)
     {
         elapsed = 0s;
-        FOST_LOG_INFO ("Moved {} units in 1 second", glm::to_string (glm::abs (_position - prev_pos)));
-        FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
+        // FOST_LOG_INFO ("Moved {} units in 1 second", glm::to_string (glm::abs (_position - prev_pos)));
+        // FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
         prev_pos = _position;
     }
-
+    // FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
 }
 
 void eyepoint::tick (const std::chrono::duration<float> dt)
@@ -591,6 +593,11 @@ void clean_glfw (GLFWwindow *window)
 
 #if ENABLE_CRAPPY_BUILD
 
+void threadfunc (const std::string &name)
+{
+    std::cout << fost::get_thread_name () << '\n';
+}
+
 #endif
 
 int main (int argc, char **argv)
@@ -610,7 +617,16 @@ int main (int argc, char **argv)
     logging_can_be_used = true;
 #if ENABLE_CRAPPY_BUILD
 
-    std::cout << fost::runtime::tps () << '\n';
+    std::thread t1(threadfunc,"thread 1");
+    std::thread t2(threadfunc,"thread 2");
+    std::thread t3(threadfunc,"thread 3");
+
+    t1.join();
+    t2.join();
+    t3.join();
+
+    fost::set_thread_name ("Main thread");
+    std::cout << fost::get_thread_name () << '\n';
 
     glfwTerminate ();
     return 0;
@@ -795,6 +811,7 @@ int main (int argc, char **argv)
     // Loop until the user closes the window
     while (! glfwWindowShouldClose (window))
     {
+        // Inputs
         glfwPollEvents ();
 
         // FOST_LOG_INFO ("Frame debug: {}ms dt | {} fps", fost::runtime::frametime ().count (), fost::runtime::fps ());
@@ -807,9 +824,9 @@ int main (int argc, char **argv)
 
         accumulator += delta_time;
 
-        // Handle some inputs.
-        g_lens.cycle (fost::runtime::frame_time ()); // ???????
+        g_lens.cycle (fost::runtime::frame_time ()); // TODO: ?
 
+        // Update
         while (accumulator >= fost::runtime::tick_unit)
         {
             // std::cout << "dt " << delta_time.count () << '\n';
@@ -826,47 +843,12 @@ int main (int argc, char **argv)
         ImGui_ImplGlfw_NewFrame ();
         ImGui::NewFrame ();
 
-        // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        if (show_demo_window)
-            ImGui::ShowDemoWindow (&show_demo_window);
 
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to created a named window.
-        {
-            static float f = 0.0f;
-            static int counter = 0;
 
-            ImGui::Begin ("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-
-            ImGui::Text ("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox ("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox ("Another Window", &show_another_window);
-
-            ImGui::SliderFloat ("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-
-            if (ImGui::Button ("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                counter++;
-            ImGui::SameLine ();
-            ImGui::Text ("counter = %d", counter);
-
-            ImGui::Text ("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO ().Framerate, ImGui::GetIO ().Framerate);
-            ImGui::End ();
-        }
-
-        // 3. Show another simple window.
-        if (show_another_window)
-        {
-            ImGui::Begin ("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-            ImGui::Text ("Hello from another window!");
-            if (ImGui::Button ("Close Me"))
-                show_another_window = false;
-            ImGui::End ();
-        }
-
-        ImPlot::ShowDemoWindow ();
-
-        // Rendering
+        // Finish the Dear ImGui frame
         ImGui::Render ();
 
+        // Rendering
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
         glClearBufferfv (GL_COLOR, 0, background_color);
 
@@ -900,6 +882,7 @@ int main (int argc, char **argv)
 
     glDeleteProgram (prog);
     glDeleteVertexArrays (1, &vao);
+
     clean_glfw (window);
     return 0;
 }

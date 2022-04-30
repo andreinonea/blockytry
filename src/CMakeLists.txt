@@ -22,6 +22,7 @@ add_executable (blockytry)
 
 target_sources (blockytry PRIVATE
     "core/runtime.cpp"
+    "core/cpu_profiler.cpp"
     "main.cpp"
 )
 
