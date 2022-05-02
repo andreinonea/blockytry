@@ -73,8 +73,8 @@ static bool logging_can_be_used = true;
     } while (0)
 
 #define UNIFORM(p, u) \
-    const GLint u = glGetUniformLocation (p, #u); \
-    CHECK_UNIFORM (u)
+    const GLint u##_##p = glGetUniformLocation (p, #u); \
+    CHECK_UNIFORM (u##_##p)
 
 static void check_shader_status (GLuint shader, GLuint what)
 {
@@ -275,6 +275,8 @@ void prune_keys ();
 
 static GLboolean g_wireframe = GL_FALSE;
 static GLboolean g_vsync = GL_FALSE;
+static GLboolean g_draw_hud = GL_TRUE;
+static GLboolean g_draw_debug_hud = GL_TRUE; // TODO: false default.
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // CAMERA | EYEPOINT | LENS declarations
@@ -285,9 +287,12 @@ class eyepoint
 {
 public:
     eyepoint ()
-        : _position {0.0f, 0.0f, 1.0f}
+        : _up {0.0f, 1.0f, 0.0f}
+        , _position {0.0f, 0.0f, 1.0f}
         , _direction {0.0f, 0.0f, -1.0f}
         , _target {nullptr}
+        , _yaw {-90.0f}
+        , _pitch {0.0f}
         , _FOV {45.0f}
         , _near {0.1f}
         , _far {100.0f}
@@ -298,7 +303,7 @@ public:
 
     inline glm::mat4 see () const
     {
-        return glm::lookAt (_position, _position + _direction, world_up);
+        return glm::lookAt (_position, _position + _direction, _up);
     }
 
     // Fix eyes on target - strict version.
@@ -315,24 +320,60 @@ public:
         // TODO: Not implemented;
     }
 
+    inline const glm::vec3 & get_upvector ()
+    {
+        return _up;
+    }
+
     inline const glm::vec3 & get_pos ()
     {
         return _position;
     }
 
+    inline const glm::vec3 & get_direction ()
+    {
+        return _direction;
+    }
+
+    inline const glm::vec3 & get_target ()
+    {
+        return *_target;
+    }
+
+    inline const float get_yaw ()
+    {
+        return _yaw;
+    }
+
+    inline const float get_pitch ()
+    {
+        return _pitch;
+    }
+
 private:
+    glm::vec3 _up;
     glm::vec3 _position;
     glm::vec3 _direction;
     glm::vec3 *_target;
-public: // TODO: should not be..
+    GLfloat _yaw;
+    GLfloat _pitch;
+public: // TODO: should not be here..
     GLfloat _FOV = 45.0f;
     GLfloat _near = 0.1f;
     GLfloat _far = 100.0f;
 private: // TODO: should not exist..
     static std::chrono::duration<float> elapsed;
     static glm::vec3 prev_pos;
-};
+    static GLfloat lastX;
+    static GLfloat lastY;
+    static bool firstMouse;
 
+    // TODO: DONT.
+    friend void mouse_callback (GLFWwindow*, double, double);
+};
+bool eyepoint::firstMouse = true;
+GLfloat eyepoint::lastX =  1024.0f / 2.0f;
+GLfloat eyepoint::lastY =  720.0f / 2.0f;
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // GLOBAL variables
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -422,6 +463,7 @@ static void key_callback (GLFWwindow *window,
             assert (g_keys[scancode][last_idx - 1].is_complete ());
         }
         g_keys[scancode][last_idx].complete ();
+        // TODO: add items to removing list
         // const auto dd = g_keys[scancode][last_idx].time_held <std::chrono::milliseconds> ();
         // const auto ticks = g_keys[scancode][last_idx].ticks_held ();
         // std::cout << "[Async?] Key " << scancode << " released after " << dd.count () << " ms or " << ticks << " ticks.\n";
@@ -430,7 +472,51 @@ static void key_callback (GLFWwindow *window,
 
 static void mouse_callback (GLFWwindow *window, double xpos, double ypos)
 {
-    // std::cout << "pos (" << xpos << "," << ypos << ")\n";
+    if (g_lens.firstMouse)
+    {
+        g_lens.lastX = xpos;
+        g_lens.lastY = ypos;
+        g_lens.firstMouse = false;
+        // std::cout << "lastX, lastY: " << xpos << ", " << ypos << '\n';
+        // std::cout << "lastX, lastY: " << g_lens.lastX << ", " << g_lens.lastY << '\n';
+        // std::cout << "first yaw " << g_lens._yaw << '\n';
+    }
+  
+    float xoffset = xpos - g_lens.lastX;
+    float yoffset = g_lens.lastY - ypos; 
+    // std::cout << "xoffset, yoffset bef: " << xoffset << ", " << yoffset << '\n';
+    g_lens.lastX = xpos;
+    g_lens.lastY = ypos;
+
+    float sensitivity = 0.1f;
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
+    // std::cout << "xoffset, yoffset aft: " << xoffset << ", " << yoffset << '\n';
+
+    // std::cout << "bef yaw " << g_lens._yaw << '\n';
+    g_lens._yaw   += xoffset;
+    g_lens._pitch += yoffset;
+    // std::cout << "aft yaw " << g_lens._yaw << '\n';
+
+    if(g_lens._pitch > 89.9f)
+        g_lens._pitch = 89.9f;
+    if(g_lens._pitch < -89.9f)
+        g_lens._pitch = -89.9f;
+
+    if (g_lens._yaw > 180.0f)
+        g_lens._yaw -= 360.0f;
+    if (g_lens._yaw < -180.0f)
+        g_lens._yaw += 360.0f;
+
+
+    glm::vec3 direction;
+    direction.x = cos(glm::radians(g_lens._yaw)) * cos(glm::radians(g_lens._pitch));
+    direction.y = sin(glm::radians(g_lens._pitch));
+    direction.z = sin(glm::radians(g_lens._yaw)) * cos(glm::radians(g_lens._pitch));
+    // std::cout << "Direction before: " << glm::to_string (g_lens._direction) << '\n';
+    g_lens._direction = glm::normalize(direction);
+    // std::cout << "Direction after: " << glm::to_string (g_lens._direction) << '\n';
+
 }
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -534,6 +620,7 @@ void eyepoint::cycle (const std::chrono::duration<float> dt)
     // FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
 }
 
+// TODO: restrict mouse movement when locked on. Require mouse_input for this.
 void eyepoint::tick (const std::chrono::duration<float> dt)
 {
     // std::cout << "[tick] dt: " << (dt / 1s) << '\n';
@@ -557,6 +644,9 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
         }
     }
 
+    const glm::vec3 right_vec = glm::normalize (glm::cross (_direction, world_up));
+    _up = glm::normalize (glm::cross (right_vec, _direction));
+
     // TODO: Get mouse input already!
     if (! _target)
     {
@@ -564,6 +654,16 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
         _direction = glm::normalize (_direction);
     }
 
+    if (key_held (GLFW_KEY_PAGE_UP))
+    {
+        // std::cout << "[Tick] Bigger step forward.\n";
+        _position += world_up * norm_walk * (dt / 1s);
+    }
+    if (key_held (GLFW_KEY_PAGE_DOWN))
+    {
+        // std::cout << "[Tick] Bigger step backward.\n";
+        _position -= world_up * norm_walk * (dt / 1s);
+    }
     if (key_held (GLFW_KEY_W))
     {
         // std::cout << "[Tick] Bigger step forward.\n";
@@ -577,12 +677,12 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
     if (key_held (GLFW_KEY_A))
     {
         // std::cout << "[Tick] Bigger step left.\n";
-        _position -= glm::normalize (glm::cross (_direction, world_up)) * norm_walk * (dt / 1s);
+        _position -= right_vec * norm_walk * (dt / 1s);
     }
     if (key_held (GLFW_KEY_D))
     {
         // std::cout << "[Tick] Bigger step right.\n";
-        _position += glm::normalize (glm::cross (_direction, world_up)) * norm_walk * (dt / 1s);
+        _position += right_vec * norm_walk * (dt / 1s);
     }
 
     // Known bug: because movement is not happening in a circle, each movement
@@ -591,9 +691,15 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
     if (_target)
     {
         _direction = glm::normalize (*_target - _position);
+        _pitch = glm::asin (_direction.y);
+        _yaw = glm::degrees (glm::asin (_direction.z / glm::cos (_pitch)));
+        _pitch = glm::degrees (_pitch);
     }
 
     // std::cout << "Position " << glm::to_string (_position) << '\n';
+    std::cout << "Direction: " << glm::to_string (_direction) << '\n';
+    std::cout << "Pitch: " << _pitch << '\n';
+    std::cout << "Yaw: " << _yaw << '\n';
 }
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -736,7 +842,7 @@ int main (int argc, char **argv)
     bool show_another_window = false;
 
     // Setup cube geometry.
-    const glm::vec3 origin {0.0f, 0.0f, 0.0f};
+    const glm::vec3 origin_vec3 {0.0f, 0.0f, 0.0f};
     const glm::vec3 pos {0.0f, 0.0f, 0.0f};
     const GLfloat scale = 0.1f;
 
@@ -795,7 +901,50 @@ int main (int argc, char **argv)
     glDeleteBuffers (1, &vbo);
     glDeleteBuffers (1, &ibo);
 
+    // -------------------------------------------------------------------------
+
+    // XYZ axes
+    const GLfloat line_vertices[36] = {
+        0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+        0.025f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.025f, 0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 0.025f, 0.0f, 0.0f, 1.0f,
+    };
+
+    // Init stuff.
+    GLuint axes_vao = 0U, axes_vbo = 0U;
+    glGenVertexArrays (1, &axes_vao);
+    glGenBuffers (1, &axes_vbo);
+
+    if (! axes_vao)
+    {
+        std::cerr << "error: could not generate vertex array\n";
+        clean_glfw (window);
+        return 1;
+    }
+    if (! axes_vbo)
+    {
+        std::cerr << "error: could not generate vertex buffer\n";
+        clean_glfw (window);
+        return 1;
+    }
+
+    glBindVertexArray (axes_vao);
+    glBindBuffer (GL_ARRAY_BUFFER, axes_vbo);
+
+    glBufferData (GL_ARRAY_BUFFER, sizeof (line_vertices), line_vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof (GLfloat) * 6, BUFFER_OFFSET (0));
+    glVertexAttribPointer (1, 3, GL_FLOAT, GL_FALSE, sizeof (GLfloat) * 6, BUFFER_OFFSET (sizeof (GLfloat) * 3));
+    glEnableVertexAttribArray (0);
+    glEnableVertexAttribArray (1);
+
+    glBindVertexArray (0);
+    glDeleteBuffers (1, &axes_vbo);
+
     // Setup shaders.
+    // Cubes
     GLuint prog = prepare_program ({
         { SHADER_PATH "default.vert", GL_VERTEX_SHADER },
         { SHADER_PATH "default.frag", GL_FRAGMENT_SHADER }
@@ -805,6 +954,19 @@ int main (int argc, char **argv)
     UNIFORM (prog, u_model);
     UNIFORM (prog, u_view);
     UNIFORM (prog, u_projection);
+    UNIFORM (prog, u_some_color);
+    glUseProgram (0);
+
+    // World axes
+    GLuint axes_prog = prepare_program ({
+        { SHADER_PATH "test.vert", GL_VERTEX_SHADER },
+        { SHADER_PATH "test.frag", GL_FRAGMENT_SHADER }
+    });
+
+    glUseProgram (axes_prog);
+    UNIFORM (axes_prog, u_model);
+    UNIFORM (axes_prog, u_view);
+    UNIFORM (axes_prog, u_projection);
     glUseProgram (0);
 
     // Setup camera.
@@ -827,7 +989,7 @@ int main (int argc, char **argv)
     // Loop until the user closes the window
     while (! glfwWindowShouldClose (window))
     {
-        // Inputs
+        // Poll Inputs.
         glfwPollEvents ();
 
         // FOST_LOG_INFO ("Frame debug: {}ms dt | {} fps", fost::runtime::frametime ().count (), fost::runtime::fps ());
@@ -842,14 +1004,26 @@ int main (int argc, char **argv)
 
         g_lens.cycle (fost::runtime::frame_time ()); // TODO: ?
         glm::mat4 view;
+        view = g_lens.see ();
 
         // Update
         while (accumulator >= fost::runtime::tick_unit)
         {
             // std::cout << "dt " << delta_time.count () << '\n';
 
+            // Window key handling.
+            if (key_down (GLFW_KEY_F1))
+            {
+                g_draw_hud = ! g_draw_hud;
+                std::cout << "Draw hud " << static_cast <int> (g_draw_hud) << '\n';
+            }
+            if (g_draw_hud && key_down (GLFW_KEY_F3))
+            {
+                g_draw_debug_hud = ! g_draw_debug_hud;
+                std::cout << "Draw debug hud " << static_cast <int> (g_draw_debug_hud) << '\n';
+            }
+
             g_lens.tick (fost::runtime::tick_unit);
-            view = g_lens.see ();
 
             prune_keys ();
             t += fost::runtime::tick_unit;
@@ -868,10 +1042,10 @@ int main (int argc, char **argv)
 
         // Rendering
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+        // glEnable (GL_DEPTH_TEST);
+        // glDepthFunc (GL_LESS);
+        // glClear (GL_DEPTH_BUFFER_BIT);
         glClearBufferfv (GL_COLOR, 0, background_color);
-
-        glUseProgram (prog);
-        glBindVertexArray (vao);
 
         // time = static_cast<GLfloat> (glfwGetTime () * speed);
         // g_lens.position = glm::vec3 (glm::sin (time) * radius,
@@ -879,16 +1053,67 @@ int main (int argc, char **argv)
         //                              glm::cos (time) * radius);
         // glm::mat4 view = glm::lookAt (g_lens.position, g_lens.direction, g_lens.up);
 
+        // Draw white cube in the center.
+        glBindVertexArray (vao);
+        glUseProgram (prog);
+#if 1
         {
-            glm::mat4 model (1.0f);
-            model = glm::translate (model, origin);
+            glm::mat4 model {1.0f};
+            // model = glm::translate (model, origin_vec3);
 
-            glUniformMatrix4fv (u_model, 1, GL_FALSE, &model[0][0]);
-            glUniformMatrix4fv (u_view, 1, GL_FALSE, &view[0][0]);
-            glUniformMatrix4fv (u_projection, 1, GL_FALSE, &g_projection[0][0]);
+            glUniformMatrix4fv (u_model_prog, 1, GL_FALSE, &model[0][0]);
+            glUniformMatrix4fv (u_view_prog, 1, GL_FALSE, &view[0][0]);
+            glUniformMatrix4fv (u_projection_prog, 1, GL_FALSE, &g_projection[0][0]);
+            glUniform3f (u_some_color_prog, 1.0f, 1.0f, 1.0f);
 
             glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
         }
+#else
+        // Draw red cube one block above center.
+        {
+            glm::mat4 model {1.0f};
+            model = glm::translate (model, {0.0f, 0.1f, 0.0f});
+
+            glUniformMatrix4fv (u_model_prog, 1, GL_FALSE, &model[0][0]);
+            glUniformMatrix4fv (u_view_prog, 1, GL_FALSE, &view[0][0]);
+            glUniformMatrix4fv (u_projection_prog, 1, GL_FALSE, &g_projection[0][0]);
+            glUniform3f (u_some_color_prog, 1.0f, 0.0f, 0.0f);
+
+            glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
+        }
+#endif
+        glUseProgram (0);
+        glBindVertexArray (0);
+
+        // TODO: HUD Drawing last.
+        if (g_draw_hud)
+        {
+            if (g_draw_debug_hud)
+            {
+                // Draw debug crosshair
+                glBindVertexArray (axes_vao);
+                glUseProgram (axes_prog);
+
+                view = glm::lookAt (-g_lens.get_direction (), origin_vec3, g_lens.get_upvector ());
+                glUniformMatrix4fv (u_view_axes_prog, 1, GL_FALSE, &view[0][0]);
+                glUniformMatrix4fv (u_projection_axes_prog, 1, GL_FALSE, &g_projection[0][0]);
+
+                glDrawArrays (GL_LINES, 0, 6);
+
+                glUseProgram (0);
+                glBindVertexArray (0);
+
+                // Draw debug stats
+            }
+            else
+            {
+                // Draw normal crosshair
+            }
+
+            // Draw rest of hud
+        }
+        // glDisable (GL_DEPTH_TEST);
+
 
         ImGui_ImplOpenGL3_RenderDrawData (ImGui::GetDrawData ());
 
@@ -902,6 +1127,7 @@ int main (int argc, char **argv)
 
     glDeleteProgram (prog);
     glDeleteVertexArrays (1, &vao);
+    glDeleteVertexArrays (1, &axes_vao);
 
     clean_glfw (window);
     return 0;
