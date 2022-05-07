@@ -50,3 +50,8 @@ endif ()
 target_compile_definitions (blockytry PRIVATE
     "-DDEFAULT_SHADER_PATH=\"${DEFAULT_SHADER_PATH}\""
 )
+
+# target_compile_options(blockytry PRIVATE
+#     $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+#     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
+# )

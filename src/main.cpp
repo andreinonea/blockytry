@@ -10,6 +10,8 @@
 #include <sstream>
 #include <string_view>
 #include <thread>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -263,6 +265,7 @@ private:
 
 static constexpr std::size_t MAX_NUM_KEYS = 256;
 static std::vector <key_event> g_keys[MAX_NUM_KEYS] = {};
+static std::unordered_set <int> g_completed_scancodes = {};
 
 inline const int resolve_scancode (const int key, int scancode);
 const std::vector <key_event> & get_events (const int key, int scancode = -1);
@@ -451,22 +454,16 @@ static void key_callback (GLFWwindow *window,
             default:
                 break;
         }
-        // std::cout << "[Async?] Key " << scancode << " pressed now\n";
-
-        g_keys[scancode].emplace_back (key_event {});
+        g_keys[scancode].emplace_back ();
+        // std::cout << "[Callback] Key " << scancode << " pressed now\n";
     }
     else if (action == GLFW_RELEASE)
     {
-        const auto last_idx = g_keys[scancode].size () - 1;
-        if (last_idx > 0)
-        {
-            assert (g_keys[scancode][last_idx - 1].is_complete ());
-        }
-        g_keys[scancode][last_idx].complete ();
-        // TODO: add items to removing list
-        // const auto dd = g_keys[scancode][last_idx].time_held <std::chrono::milliseconds> ();
-        // const auto ticks = g_keys[scancode][last_idx].ticks_held ();
-        // std::cout << "[Async?] Key " << scancode << " released after " << dd.count () << " ms or " << ticks << " ticks.\n";
+        g_keys[scancode].back ().complete ();
+        g_completed_scancodes.insert (scancode);
+        // const auto dd = g_keys[scancode].back ().time_held <std::chrono::milliseconds> ();
+        // const auto ticks = g_keys[scancode].back ().ticks_held ();
+        // std::cout << "[Callback] Key " << scancode << " released after " << dd.count () << " ms or " << ticks << " ticks.\n";
     }
 }
 
@@ -477,26 +474,20 @@ static void mouse_callback (GLFWwindow *window, double xpos, double ypos)
         g_lens.lastX = xpos;
         g_lens.lastY = ypos;
         g_lens.firstMouse = false;
-        // std::cout << "lastX, lastY: " << xpos << ", " << ypos << '\n';
-        // std::cout << "lastX, lastY: " << g_lens.lastX << ", " << g_lens.lastY << '\n';
-        // std::cout << "first yaw " << g_lens._yaw << '\n';
     }
   
     float xoffset = xpos - g_lens.lastX;
     float yoffset = g_lens.lastY - ypos; 
-    // std::cout << "xoffset, yoffset bef: " << xoffset << ", " << yoffset << '\n';
+
     g_lens.lastX = xpos;
     g_lens.lastY = ypos;
 
     float sensitivity = 0.1f;
     xoffset *= sensitivity;
     yoffset *= sensitivity;
-    // std::cout << "xoffset, yoffset aft: " << xoffset << ", " << yoffset << '\n';
 
-    // std::cout << "bef yaw " << g_lens._yaw << '\n';
     g_lens._yaw   += xoffset;
     g_lens._pitch += yoffset;
-    // std::cout << "aft yaw " << g_lens._yaw << '\n';
 
     if(g_lens._pitch > 89.9f)
         g_lens._pitch = 89.9f;
@@ -513,9 +504,7 @@ static void mouse_callback (GLFWwindow *window, double xpos, double ypos)
     direction.x = cos(glm::radians(g_lens._yaw)) * cos(glm::radians(g_lens._pitch));
     direction.y = sin(glm::radians(g_lens._pitch));
     direction.z = sin(glm::radians(g_lens._yaw)) * cos(glm::radians(g_lens._pitch));
-    // std::cout << "Direction before: " << glm::to_string (g_lens._direction) << '\n';
     g_lens._direction = glm::normalize(direction);
-    // std::cout << "Direction after: " << glm::to_string (g_lens._direction) << '\n';
 
 }
 
@@ -541,36 +530,27 @@ const std::vector <key_event> & get_events (const int key, int scancode)
 const std::vector <key_event> get_complete (const int key, int scancode)
 {
     scancode = resolve_scancode (key, scancode);
-    auto complete_events = std::vector <key_event> {};
-
-    for (const auto &e : g_keys[scancode])
-        if (e.is_complete ())
-            complete_events.push_back (e);
-
+    auto complete_events = g_keys[scancode];
+    if (complete_events.size () > 0 && (! complete_events.back ().is_complete ()))
+        complete_events.pop_back ();
     return complete_events;
 }
 
 const int count_complete (const int key, int scancode) // TODO: same as key_up
 {
     scancode = resolve_scancode (key, scancode);
-    int count = 0;
-
-    for (const auto &e : g_keys[scancode])
-        if (e.is_complete ())
-            ++count;
-
-    return count;
+    auto count = g_keys[scancode].size ();
+    if (count > 0 && (! g_keys[scancode].back ().is_complete ()))
+        --count;
+    return static_cast <int> (count);
 }
 
 const int key_down (const int key, int scancode)
 {
     scancode = resolve_scancode (key, scancode);
-    std::size_t downs_in_cur_tick = g_keys[scancode].size ();
-    if (downs_in_cur_tick == 0)
-        return 0;
+    auto downs_in_cur_tick = g_keys[scancode].size ();
 
-    const key_event &first = g_keys[scancode].front ();
-    if (first.ticks_elapsed () > 0L)
+    if (downs_in_cur_tick > 0 && g_keys[scancode].front ().ticks_elapsed () > 0L)
         --downs_in_cur_tick;
 
     return static_cast <int> (downs_in_cur_tick);
@@ -584,22 +564,16 @@ const int key_up (const int key, int scancode) // TODO: same as count_complete
 const long key_held (const int key, int scancode)
 {
     scancode = resolve_scancode (key, scancode);
-    if (g_keys[scancode].size () == 0)
-        return false;
-
-    const key_event &last = g_keys[scancode].back ();
-    return (last.is_complete () ? 0L : last.ticks_elapsed ());
+    return (g_keys[scancode].size () == 0 || g_keys[scancode].back ().is_complete ())
+        ? 0L
+        : g_keys[scancode].back ().ticks_elapsed ();
 }
 
 void prune_keys ()
 {
-    for (int i = 0; i < MAX_NUM_KEYS; ++i)
-    {
-        std::erase_if (g_keys[i], [] (const key_event &e)
-        {
-            return e.is_complete ();
-        });
-    }
+    for (int scancode : g_completed_scancodes)
+        g_keys[scancode].clear ();
+    g_completed_scancodes.clear ();
 }
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -630,7 +604,7 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
 
     if (key_down (GLFW_KEY_T))
     {
-        if (_target && key_down (GLFW_KEY_T))
+        if (_target)
         {
             lock_on (nullptr);
             std::cout << "[Tick] Stopped following.\n";
@@ -697,9 +671,9 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
     }
 
     // std::cout << "Position " << glm::to_string (_position) << '\n';
-    std::cout << "Direction: " << glm::to_string (_direction) << '\n';
-    std::cout << "Pitch: " << _pitch << '\n';
-    std::cout << "Yaw: " << _yaw << '\n';
+    // std::cout << "Direction: " << glm::to_string (_direction) << '\n';
+    // std::cout << "Pitch: " << _pitch << '\n';
+    // std::cout << "Yaw: " << _yaw << '\n';
 }
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -984,11 +958,15 @@ int main (int argc, char **argv)
     fost::runtime::duration accumulator {0s};
     fost::runtime::time_point t {};
 
+    int frame_count = 0;
+
     // TODO: Figure out game loop.
     glfwSwapInterval (g_vsync);
     // Loop until the user closes the window
     while (! glfwWindowShouldClose (window))
     {
+        ++frame_count;
+        // std::cout << "[Frame #" << frame_count << "] Start\n";
         // Poll Inputs.
         glfwPollEvents ();
 
@@ -996,6 +974,7 @@ int main (int argc, char **argv)
         // IMPORTANT! Must cycle runtime to advance simulation (calculates delta time).
         fost::runtime::cycle ();
         auto delta_time = fost::runtime::frame_time ();
+        // std::cout << "[Frame #" << frame_count << "] dt " << std::chrono::duration <float> (delta_time).count () << '\n';
 
         if (delta_time > 250ms)
             delta_time = 250ms;
@@ -1003,14 +982,11 @@ int main (int argc, char **argv)
         accumulator += delta_time;
 
         g_lens.cycle (fost::runtime::frame_time ()); // TODO: ?
-        glm::mat4 view;
-        view = g_lens.see ();
 
         // Update
         while (accumulator >= fost::runtime::tick_unit)
         {
-            // std::cout << "dt " << delta_time.count () << '\n';
-
+            // std::cout << "[Frame #" << frame_count << "] TICK NOW!\n";
             // Window key handling.
             if (key_down (GLFW_KEY_F1))
             {
@@ -1041,6 +1017,9 @@ int main (int argc, char **argv)
         ImGui::Render ();
 
         // Rendering
+        glm::mat4 view;
+        view = g_lens.see ();
+
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
         // glEnable (GL_DEPTH_TEST);
         // glDepthFunc (GL_LESS);
@@ -1118,6 +1097,7 @@ int main (int argc, char **argv)
         ImGui_ImplOpenGL3_RenderDrawData (ImGui::GetDrawData ());
 
         glfwSwapBuffers (window);
+        // std::cout << "[Frame #" << frame_count << "] End\n";
     }
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown ();

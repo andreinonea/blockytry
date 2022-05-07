@@ -25,7 +25,7 @@ namespace runtime
 
 // Ticks per second - how many ticks happen in 1 second.
 // 50 milliseconds per tick. 1/50 = 0.02 ticks per millisecond = 20 tps.
-constexpr std::uint16_t tps = 60U;
+constexpr std::uint16_t tps = 20U;
 
 // Milliseconds per tick - interval at which most game systems are ticked.
 // 20 ticks per second. 1/20 = 0.05 seconds per tick = 50 mspt.
