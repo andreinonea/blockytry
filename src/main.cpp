@@ -7,6 +7,7 @@
 #include <fstream>
 #include <initializer_list>
 #include <iostream>
+#include <list>
 #include <sstream>
 #include <string_view>
 #include <thread>
@@ -263,13 +264,36 @@ private:
     }
 };
 
+// Key input
 static constexpr std::size_t MAX_NUM_KEYS = 256;
-static std::vector <key_event> g_keys[MAX_NUM_KEYS] = {};
+static std::list <key_event> g_keys[MAX_NUM_KEYS] = {};
 static std::unordered_set <int> g_completed_scancodes = {};
 
+// Mouse input
+static GLboolean g_cursor_is_first_move = GL_TRUE;
+static GLfloat g_cursor_last_x = 0.0f;
+static GLfloat g_cursor_last_y = 0.0f;
+static GLfloat g_cursor_movement_x = 0.0f;
+static GLfloat g_cursor_movement_y = 0.0f;
+
+void cycle_mouse_to_be_renamed ()
+{
+    g_cursor_movement_x = 0.0f;
+    g_cursor_movement_y = 0.0f;
+}
+
+GLfloat maxis_horizontal ()
+{
+    return g_cursor_movement_x;
+}
+GLfloat maxis_vertical ()
+{
+    return g_cursor_movement_y;
+}
+
 inline const int resolve_scancode (const int key, int scancode);
-const std::vector <key_event> & get_events (const int key, int scancode = -1);
-const std::vector <key_event> get_complete (const int key, int scancode = -1);
+const std::list <key_event> & get_events (const int key, int scancode = -1);
+const std::list <key_event> get_complete (const int key, int scancode = -1);
 const int count_complete (const int key, int scancode = -1);
 const int key_down (int key, int scancode = -1);
 const int key_up (int key, int scancode = -1);
@@ -296,6 +320,8 @@ public:
         , _target {nullptr}
         , _yaw {-90.0f}
         , _pitch {0.0f}
+        , _sensitivity_x {0.1f}
+        , _sensitivity_y {0.1f}
         , _FOV {45.0f}
         , _near {0.1f}
         , _far {100.0f}
@@ -307,6 +333,11 @@ public:
     inline glm::mat4 see () const
     {
         return glm::lookAt (_position, _position + _direction, _up);
+    }
+
+    inline glm::mat4 see_from (const glm::vec3 &pos) const
+    {
+        return glm::lookAt (pos, pos + _direction, _up);
     }
 
     // Fix eyes on target - strict version.
@@ -328,7 +359,7 @@ public:
         return _up;
     }
 
-    inline const glm::vec3 & get_pos ()
+    inline const glm::vec3 & get_position ()
     {
         return _position;
     }
@@ -343,14 +374,34 @@ public:
         return *_target;
     }
 
-    inline const float get_yaw ()
+    inline const GLfloat get_yaw ()
     {
         return _yaw;
     }
 
-    inline const float get_pitch ()
+    inline const GLfloat get_pitch ()
     {
         return _pitch;
+    }
+
+    inline const GLfloat get_sensitivity_x ()
+    {
+        return _sensitivity_x;
+    }
+
+    inline void set_sensitivity_x (GLfloat sensitivity)
+    {
+        _sensitivity_x = sensitivity;
+    }
+
+    inline const GLfloat get_sensitivity_y ()
+    {
+        return _sensitivity_y;
+    }
+
+    inline void set_sensitivity_y (GLfloat sensitivity)
+    {
+        _sensitivity_y = sensitivity;
     }
 
 private:
@@ -360,23 +411,18 @@ private:
     glm::vec3 *_target;
     GLfloat _yaw;
     GLfloat _pitch;
+    GLfloat _sensitivity_x;
+    GLfloat _sensitivity_y;
 public: // TODO: should not be here..
     GLfloat _FOV = 45.0f;
     GLfloat _near = 0.1f;
     GLfloat _far = 100.0f;
-private: // TODO: should not exist..
+public: // TODO: should not exist..
     static std::chrono::duration<float> elapsed;
     static glm::vec3 prev_pos;
-    static GLfloat lastX;
-    static GLfloat lastY;
-    static bool firstMouse;
-
-    // TODO: DONT.
-    friend void mouse_callback (GLFWwindow*, double, double);
+    static glm::vec3 prev_dir;
 };
-bool eyepoint::firstMouse = true;
-GLfloat eyepoint::lastX =  1024.0f / 2.0f;
-GLfloat eyepoint::lastY =  720.0f / 2.0f;
+
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // GLOBAL variables
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -459,6 +505,7 @@ static void key_callback (GLFWwindow *window,
     }
     else if (action == GLFW_RELEASE)
     {
+        assert (g_keys[scancode].size () != 0);
         g_keys[scancode].back ().complete ();
         g_completed_scancodes.insert (scancode);
         // const auto dd = g_keys[scancode].back ().time_held <std::chrono::milliseconds> ();
@@ -469,44 +516,20 @@ static void key_callback (GLFWwindow *window,
 
 static void mouse_callback (GLFWwindow *window, double xpos, double ypos)
 {
-    if (g_lens.firstMouse)
+    if (g_cursor_is_first_move)
     {
-        g_lens.lastX = xpos;
-        g_lens.lastY = ypos;
-        g_lens.firstMouse = false;
+        g_cursor_last_x = xpos;
+        g_cursor_last_y = ypos;
+        g_cursor_is_first_move = GL_FALSE;
     }
-  
-    float xoffset = xpos - g_lens.lastX;
-    float yoffset = g_lens.lastY - ypos; 
 
-    g_lens.lastX = xpos;
-    g_lens.lastY = ypos;
+    g_cursor_movement_x = xpos - g_cursor_last_x;
+    g_cursor_movement_y = g_cursor_last_y - ypos;
 
-    float sensitivity = 0.1f;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
-
-    g_lens._yaw   += xoffset;
-    g_lens._pitch += yoffset;
-
-    if(g_lens._pitch > 89.9f)
-        g_lens._pitch = 89.9f;
-    if(g_lens._pitch < -89.9f)
-        g_lens._pitch = -89.9f;
-
-    if (g_lens._yaw > 180.0f)
-        g_lens._yaw -= 360.0f;
-    if (g_lens._yaw < -180.0f)
-        g_lens._yaw += 360.0f;
-
-
-    glm::vec3 direction;
-    direction.x = cos(glm::radians(g_lens._yaw)) * cos(glm::radians(g_lens._pitch));
-    direction.y = sin(glm::radians(g_lens._pitch));
-    direction.z = sin(glm::radians(g_lens._yaw)) * cos(glm::radians(g_lens._pitch));
-    g_lens._direction = glm::normalize(direction);
-
+    g_cursor_last_x = xpos;
+    g_cursor_last_y = ypos;
 }
+
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // INPUT definitions
@@ -521,13 +544,13 @@ inline const int resolve_scancode (const int key, int scancode)
     return scancode;
 }
 
-const std::vector <key_event> & get_events (const int key, int scancode)
+const std::list <key_event> & get_events (const int key, int scancode)
 {
     scancode = resolve_scancode (key, scancode);
     return g_keys[scancode];
 }
 
-const std::vector <key_event> get_complete (const int key, int scancode)
+const std::list <key_event> get_complete (const int key, int scancode)
 {
     scancode = resolve_scancode (key, scancode);
     auto complete_events = g_keys[scancode];
@@ -572,7 +595,15 @@ const long key_held (const int key, int scancode)
 void prune_keys ()
 {
     for (int scancode : g_completed_scancodes)
-        g_keys[scancode].clear ();
+    {
+        assert (g_keys[scancode].size () != 0);
+        auto begin = g_keys[scancode].cbegin ();
+        auto end = g_keys[scancode].cend ();
+        if (! g_keys[scancode].back ().is_complete ())
+            --end;
+        if (begin != end)
+            g_keys[scancode].erase (begin, end);
+    }
     g_completed_scancodes.clear ();
 }
 
@@ -581,22 +612,50 @@ void prune_keys ()
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 std::chrono::duration<float> eyepoint::elapsed {};
 glm::vec3 eyepoint::prev_pos {};
+glm::vec3 eyepoint::prev_dir {};
 void eyepoint::cycle (const std::chrono::duration<float> dt)
 {
-    elapsed += dt;
-    if (elapsed >= 1s)
-    {
-        elapsed = 0s;
-        // FOST_LOG_INFO ("Moved {} units in 1 second", glm::to_string (glm::abs (_position - prev_pos)));
-        // FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
-        prev_pos = _position;
-    }
+    // elapsed += dt;
+    // if (elapsed >= 1s)
+    // {
+    //     elapsed = 0s;
+    //     // FOST_LOG_INFO ("Moved {} units in 1 second", glm::to_string (glm::abs (_position - prev_pos)));
+    //     // FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
+    //     prev_pos = _position;
+    // }
     // FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
+ 
+    // TODO: Get mouse input already!
+    if (! _target)
+    {
+        prev_dir = _direction;
+        // Get input from mouse for orientation.
+        _yaw += maxis_horizontal () * _sensitivity_x;
+        _pitch += maxis_vertical () * _sensitivity_y;
+
+        if (_pitch > 89.9f)
+            _pitch = 89.9f;
+        if (_pitch < -89.9f)
+            _pitch = -89.9f;
+
+        if (_yaw > 180.0f)
+            _yaw -= 360.0f;
+        if (_yaw < -180.0f)
+            _yaw += 360.0f;
+
+        const auto cos_of_pitch = glm::cos(glm::radians(_pitch));
+        _direction.x = glm::cos(glm::radians(_yaw)) * cos_of_pitch;
+        _direction.y = glm::sin(glm::radians(_pitch));
+        _direction.z = glm::sin(glm::radians(_yaw)) * cos_of_pitch;
+        _direction = glm::normalize(_direction);
+    }
 }
 
 // TODO: restrict mouse movement when locked on. Require mouse_input for this.
 void eyepoint::tick (const std::chrono::duration<float> dt)
 {
+    prev_pos = _position;
+
     // std::cout << "[tick] dt: " << (dt / 1s) << '\n';
 
     static constexpr GLfloat slow_walk = {0.1f};
@@ -614,19 +673,13 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
             static constexpr glm::vec3 target = {0.0f, 0.0f, 0.0f};
             lock_on (&target);
             _direction = glm::normalize (*_target - _position);
+            prev_dir = _direction; // in this case, prev is set after because whenever we have teleportations, we can't blend the vectors, it must be a complete jump.
             std::cout << "[Tick] Following origin.\n";
         }
     }
 
     const glm::vec3 right_vec = glm::normalize (glm::cross (_direction, world_up));
     _up = glm::normalize (glm::cross (right_vec, _direction));
-
-    // TODO: Get mouse input already!
-    if (! _target)
-    {
-        // Get input from mouse for orientation.
-        _direction = glm::normalize (_direction);
-    }
 
     if (key_held (GLFW_KEY_PAGE_UP))
     {
@@ -664,6 +717,7 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
     // insignificant to involve trigonometrics into this.
     if (_target)
     {
+        prev_dir = _direction;
         _direction = glm::normalize (*_target - _position);
         _pitch = glm::asin (_direction.y);
         _yaw = glm::degrees (glm::asin (_direction.z / glm::cos (_pitch)));
@@ -1005,6 +1059,7 @@ int main (int argc, char **argv)
             t += fost::runtime::tick_unit;
             accumulator -= fost::runtime::tick_unit;
         }
+        cycle_mouse_to_be_renamed ();
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame ();
@@ -1012,13 +1067,14 @@ int main (int argc, char **argv)
         ImGui::NewFrame ();
 
 
-
         // Finish the Dear ImGui frame
         ImGui::Render ();
 
         // Rendering
-        glm::mat4 view;
-        view = g_lens.see ();
+        const double alpha = std::chrono::duration <double> {accumulator} / fost::runtime::tick_unit;
+        const glm::vec3 final_pos = glm::mix (g_lens.prev_pos, g_lens.get_position (), alpha);
+        const glm::vec3 final_dir = glm::mix (g_lens.prev_dir, g_lens.get_direction (), alpha);
+        glm::mat4 view = glm::lookAt (final_pos, final_pos + final_dir, g_lens.get_upvector ());
 
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
         // glEnable (GL_DEPTH_TEST);
