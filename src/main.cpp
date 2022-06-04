@@ -643,11 +643,16 @@ void eyepoint::cycle (const std::chrono::duration<float> dt)
         if (_yaw < -180.0f)
             _yaw += 360.0f;
 
-        const auto cos_of_pitch = glm::cos(glm::radians(_pitch));
-        _direction.x = glm::cos(glm::radians(_yaw)) * cos_of_pitch;
-        _direction.y = glm::sin(glm::radians(_pitch));
-        _direction.z = glm::sin(glm::radians(_yaw)) * cos_of_pitch;
+        const auto pitch_in_radians = glm::radians(_pitch);
+        const auto yaw_in_radians = glm::radians(_yaw);
+        const auto cos_of_pitch = glm::cos(pitch_in_radians);
+        _direction.x = glm::cos(yaw_in_radians) * cos_of_pitch;
+        _direction.y = glm::sin(pitch_in_radians);
+        _direction.z = glm::sin(yaw_in_radians) * cos_of_pitch;
         _direction = glm::normalize(_direction);
+        // std::cout << "[Cycle] Position " << glm::to_string (_position) << '\n';
+        // std::cout << "[Cycle] Direction: " << glm::to_string (_direction) << '\n';
+        // std::cout << "[Cycle] Prev Direction: " << glm::to_string (prev_dir) << '\n';
     }
 }
 
@@ -722,10 +727,19 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
         _pitch = glm::asin (_direction.y);
         _yaw = glm::degrees (glm::asin (_direction.z / glm::cos (_pitch)));
         _pitch = glm::degrees (_pitch);
+        if (_direction.x < 0 && _direction.z < 0)
+        {
+            _yaw = (-180.0f - _yaw);
+        }
+        else if (_direction.x < 0 && _direction.z >= 0)
+        {
+            _yaw = (180.0f - _yaw);
+        }
     }
 
     // std::cout << "Position " << glm::to_string (_position) << '\n';
-    // std::cout << "Direction: " << glm::to_string (_direction) << '\n';
+    // std::cout << "[Tick] Direction: " << glm::to_string (_direction) << '\n';
+    // std::cout << "[Tick] Prev Direction: " << glm::to_string (prev_dir) << '\n';
     // std::cout << "Pitch: " << _pitch << '\n';
     // std::cout << "Yaw: " << _yaw << '\n';
 }
