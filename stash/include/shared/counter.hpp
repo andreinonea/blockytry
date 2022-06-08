@@ -1,5 +1,5 @@
-#ifndef __BLOCKYTRY_SHARED_COUNTER_H__
-#define __BLOCKYTRY_SHARED_COUNTER_H__
+#ifndef _BLOCKYTRY_SHARED_COUNTER_H_
+#define _BLOCKYTRY_SHARED_COUNTER_H_
 
 #include <limits>
 #include <type_traits>
@@ -109,4 +109,4 @@ private:
 
 } // namespace shared
 
-#endif // __BLOCKYTRY_SHARED_COUNTER_H__
+#endif // _BLOCKYTRY_SHARED_COUNTER_H_

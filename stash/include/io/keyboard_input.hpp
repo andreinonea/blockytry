@@ -1,5 +1,5 @@
-#ifndef __BLOCKYTRY_IO_KEYBOARD_INPUT_H__
-#define __BLOCKYTRY_IO_KEYBOARD_INPUT_H__
+#ifndef _BLOCKYTRY_IO_KEYBOARD_INPUT_H_
+#define _BLOCKYTRY_IO_KEYBOARD_INPUT_H_
 
 #include <iostream>
 
@@ -13,4 +13,4 @@ int key_down (int key)
 
 } // namespace io
 
-#endif // __BLOCKYTRY_IO_KEYBOARD_INPUT_H__
+#endif // _BLOCKYTRY_IO_KEYBOARD_INPUT_H_

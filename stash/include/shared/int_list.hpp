@@ -1,5 +1,5 @@
-#ifndef __BLOCKYTRY_IO_INT_LIST_H__
-#define __BLOCKYTRY_IO_INT_LIST_H__
+#ifndef _BLOCKYTRY_IO_INT_LIST_H_
+#define _BLOCKYTRY_IO_INT_LIST_H_
 
 namespace shared
 {
@@ -126,4 +126,4 @@ struct append <int_list <val, Next>, appended>
 
 } // namespace shared
 
-#endif // __BLOCKYTRY_IO_INT_LIST_H__
+#endif // _BLOCKYTRY_IO_INT_LIST_H_

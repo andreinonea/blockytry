@@ -1,5 +1,5 @@
-#ifndef __STORYTAILOR_CORE_CPU_PROFILER_H__
-#define __STORYTAILOR_CORE_CPU_PROFILER_H__
+#ifndef _BLOCKYTRY_CORE_CPU_PROFILER_H_
+#define _BLOCKYTRY_CORE_CPU_PROFILER_H_
 
 #include <iostream>
 #include <string>
@@ -38,4 +38,4 @@ void set_thread_name (const std::string &tname);
 
 } // namespace fost
 
-#endif // __STORYTAILOR_CORE_CPU_PROFILER_H__
+#endif // _BLOCKYTRY_CORE_CPU_PROFILER_H_

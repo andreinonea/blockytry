@@ -1,5 +1,5 @@
-#ifndef __BLOCKYTRY_IO_LOOKUP_TABLE_H__
-#define __BLOCKYTRY_IO_LOOKUP_TABLE_H__
+#ifndef _BLOCKYTRY_IO_LOOKUP_TABLE_H_
+#define _BLOCKYTRY_IO_LOOKUP_TABLE_H_
 
 #include <algorithm>
 #include <array>
@@ -13,7 +13,7 @@ template <typename _Key, typename _Value, std::size_t size>
 using lut = std::array <std::pair <_Key, _Value>, size>;
 
 template <typename _Key, typename _Value, std::size_t size>
-struct __lookup_table_impl
+struct _lookup_table_impl
 {
     lut <_Key, _Value, size> data;
 
@@ -31,15 +31,15 @@ struct __lookup_table_impl
 template <typename _Key, typename _Value, std::size_t size>
 consteval _Value lookup (const lut <_Key, _Value, size> &lut, const _Key &key)
 {
-    return __lookup_table_impl <_Key, _Value, size> {{lut}}.at (key);
+    return _lookup_table_impl <_Key, _Value, size> {{lut}}.at (key);
 }
 
 template <typename _Value, std::size_t size>
 consteval _Value lookup (const lut <std::string_view, _Value, size> &lut, const char *key)
 {
-    return __lookup_table_impl <std::string_view, _Value, size> {{lut}}.at (key);
+    return _lookup_table_impl <std::string_view, _Value, size> {{lut}}.at (key);
 }
 
 } // namespace shared
 
-#endif // __BLOCKYTRY_IO_LOOKUP_TABLE_H__
+#endif // _BLOCKYTRY_IO_LOOKUP_TABLE_H_

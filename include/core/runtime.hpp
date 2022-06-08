@@ -1,5 +1,5 @@
-#ifndef __STORYTAILOR_CORE_RUNTIME_H__
-#define __STORYTAILOR_CORE_RUNTIME_H__
+#ifndef _BLOCKYTRY_CORE_RUNTIME_H_
+#define _BLOCKYTRY_CORE_RUNTIME_H_
 
 #include <chrono>
 #include <cstddef>
@@ -62,4 +62,4 @@ const float fps ();
 } // namespace runtime
 } // namespace fost
 
-#endif // __STORYTAILOR_CORE_RUNTIME_H__
+#endif // _BLOCKYTRY_CORE_RUNTIME_H_
