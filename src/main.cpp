@@ -264,12 +264,21 @@ private:
     }
 };
 
-// Key input
+// Key input.
 static constexpr std::size_t MAX_NUM_KEYS = 256;
+static constexpr std::size_t MAX_NUM_MBUTTONS = 16;
 static std::list <key_event> g_keys[MAX_NUM_KEYS] = {};
-static std::unordered_set <int> g_completed_scancodes = {};
+static std::unordered_set <int> g_completed_events = {};
 
-// Mouse input
+inline const int resolve_scancode (const int key, int scancode);
+const std::list <key_event> & get_events (const int key, int scancode = -1);
+const std::list <key_event> get_complete (const int key, int scancode = -1);
+const int key_down (int key, int scancode = -1);
+const int key_up (int key, int scancode = -1);
+const long key_held (int key, int scancode = -1);
+void prune_events ();
+
+// Mouse input.
 static GLboolean g_cursor_is_first_move = GL_TRUE;
 static GLfloat g_cursor_last_x = 0.0f;
 static GLfloat g_cursor_last_y = 0.0f;
@@ -291,15 +300,7 @@ GLfloat maxis_vertical ()
     return g_cursor_movement_y;
 }
 
-inline const int resolve_scancode (const int key, int scancode);
-const std::list <key_event> & get_events (const int key, int scancode = -1);
-const std::list <key_event> get_complete (const int key, int scancode = -1);
-const int count_complete (const int key, int scancode = -1);
-const int key_down (int key, int scancode = -1);
-const int key_up (int key, int scancode = -1);
-const long key_held (int key, int scancode = -1);
-void prune_keys ();
-
+// Configurations.
 static GLboolean g_wireframe = GL_FALSE;
 static GLboolean g_vsync = GL_FALSE;
 static GLboolean g_draw_hud = GL_TRUE;
@@ -507,7 +508,7 @@ static void key_callback (GLFWwindow *window,
     {
         assert (g_keys[scancode].size () != 0);
         g_keys[scancode].back ().complete ();
-        g_completed_scancodes.insert (scancode);
+        g_completed_events.insert (scancode);
         // const auto dd = g_keys[scancode].back ().time_held <std::chrono::milliseconds> ();
         // const auto ticks = g_keys[scancode].back ().ticks_held ();
         // std::cout << "[Callback] Key " << scancode << " released after " << dd.count () << " ms or " << ticks << " ticks.\n";
@@ -559,15 +560,6 @@ const std::list <key_event> get_complete (const int key, int scancode)
     return complete_events;
 }
 
-const int count_complete (const int key, int scancode) // TODO: same as key_up
-{
-    scancode = resolve_scancode (key, scancode);
-    auto count = g_keys[scancode].size ();
-    if (count > 0 && (! g_keys[scancode].back ().is_complete ()))
-        --count;
-    return static_cast <int> (count);
-}
-
 const int key_down (const int key, int scancode)
 {
     scancode = resolve_scancode (key, scancode);
@@ -579,9 +571,13 @@ const int key_down (const int key, int scancode)
     return static_cast <int> (downs_in_cur_tick);
 }
 
-const int key_up (const int key, int scancode) // TODO: same as count_complete
+const int key_up (const int key, int scancode)
 {
-    return count_complete (key, scancode);
+    scancode = resolve_scancode (key, scancode);
+    auto count = g_keys[scancode].size ();
+    if (count > 0 && (! g_keys[scancode].back ().is_complete ()))
+        --count;
+    return static_cast <int> (count);
 }
 
 const long key_held (const int key, int scancode)
@@ -592,9 +588,9 @@ const long key_held (const int key, int scancode)
         : g_keys[scancode].back ().ticks_elapsed ();
 }
 
-void prune_keys ()
+void prune_events ()
 {
-    for (int scancode : g_completed_scancodes)
+    for (int scancode : g_completed_events)
     {
         assert (g_keys[scancode].size () != 0);
         auto begin = g_keys[scancode].cbegin ();
@@ -604,7 +600,7 @@ void prune_keys ()
         if (begin != end)
             g_keys[scancode].erase (begin, end);
     }
-    g_completed_scancodes.clear ();
+    g_completed_events.clear ();
 }
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -1067,9 +1063,14 @@ int main (int argc, char **argv)
                 std::cout << "Draw debug hud " << static_cast <int> (g_draw_debug_hud) << '\n';
             }
 
+            if (const auto amount = key_held (GLFW_KEY_H))
+            {
+                std::cout << "Held H for " << amount << '\n';
+            }
+
             g_lens.tick (fost::runtime::tick_unit);
 
-            prune_keys ();
+            prune_events ();
             t += fost::runtime::tick_unit;
             accumulator -= fost::runtime::tick_unit;
         }
