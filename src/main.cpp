@@ -943,6 +943,12 @@ int main (int argc, char **argv)
     // -------------------------------------------------------------------------
 
     // XYZ axes
+    // TODO: reduce number of vertices, optionally keep colors.
+    // 1.0f * scale,         0.0f,         0.0f
+    //         0.0f, 1.0f * scale,         0.0f
+    //         0.0f,         0.0f, 1.0f * scale
+    //
+    // In shader, colors can be determined simply from which dimension != 0.0f.
     const GLfloat line_vertices[36] = {
         0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
         0.025f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
@@ -999,14 +1005,12 @@ int main (int argc, char **argv)
 
     // World axes
     GLuint axes_prog = prepare_program ({
-        { SHADER_PATH "test.vert", GL_VERTEX_SHADER },
-        { SHADER_PATH "test.frag", GL_FRAGMENT_SHADER }
+        { SHADER_PATH "axes.vert", GL_VERTEX_SHADER },
+        { SHADER_PATH "axes.frag", GL_FRAGMENT_SHADER }
     });
 
     glUseProgram (axes_prog);
-    UNIFORM (axes_prog, u_model);
-    UNIFORM (axes_prog, u_view);
-    UNIFORM (axes_prog, u_projection);
+    UNIFORM (axes_prog, u_vp);
     glUseProgram (0);
 
     // Setup camera.
@@ -1169,17 +1173,18 @@ int main (int argc, char **argv)
             if (g_draw_debug_hud)
             {
                 // Draw debug crosshair
+                glDisable (GL_DEPTH_TEST);
                 glBindVertexArray (axes_vao);
                 glUseProgram (axes_prog);
 
                 view = glm::lookAt (-g_lens.get_direction (), origin_vec3, g_lens.get_upvector ());
-                glUniformMatrix4fv (u_view_axes_prog, 1, GL_FALSE, &view[0][0]);
-                glUniformMatrix4fv (u_projection_axes_prog, 1, GL_FALSE, &g_projection[0][0]);
+                glUniformMatrix4fv (u_vp_axes_prog, 1, GL_FALSE, &(g_projection * view)[0][0]);
 
                 glDrawArrays (GL_LINES, 0, 6);
 
                 glUseProgram (0);
                 glBindVertexArray (0);
+                glEnable (GL_DEPTH_TEST);
 
                 // Draw debug stats
             }
@@ -1190,7 +1195,6 @@ int main (int argc, char **argv)
 
             // Draw rest of hud
         }
-        // glDisable (GL_DEPTH_TEST);
 
 
         ImGui_ImplOpenGL3_RenderDrawData (ImGui::GetDrawData ());

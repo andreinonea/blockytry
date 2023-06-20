@@ -6,3 +6,6 @@ _*/
 
 # Vscode
 .vscode/
+
+# imgui?
+imgui.ini
