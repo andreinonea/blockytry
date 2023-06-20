@@ -620,7 +620,7 @@ void eyepoint::cycle (const std::chrono::duration<float> dt)
     //     prev_pos = _position;
     // }
     // FOST_LOG_INFO ("Pos {}", glm::to_string (_position));
- 
+
     // TODO: Get mouse input already!
     if (! _target)
     {

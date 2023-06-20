@@ -1,3 +1,6 @@
+# Build folder
+[Bb]uild/
+
 # All folders starting with '_'
 _*/
 
