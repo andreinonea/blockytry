@@ -1013,6 +1013,20 @@ int main (int argc, char **argv)
     UNIFORM (axes_prog, u_vp);
     glUseProgram (0);
 
+    // Clouds
+    GLuint cloud_prog = prepare_program ({
+        { SHADER_PATH "cloud.vert", GL_VERTEX_SHADER },
+        { SHADER_PATH "cloud.frag", GL_FRAGMENT_SHADER }
+    });
+
+    glUseProgram (cloud_prog);
+    UNIFORM (cloud_prog, u_model);
+    UNIFORM (cloud_prog, u_view);
+    UNIFORM (cloud_prog , u_projection);
+    UNIFORM (cloud_prog , u_resolution);
+    UNIFORM (cloud_prog , u_camera);
+    glUseProgram (0);
+
     // Setup camera.
     const GLfloat speed = 2.0f;
     const GLfloat radius = 0.5f;
@@ -1103,25 +1117,29 @@ int main (int argc, char **argv)
 
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
         static const GLfloat sky_color[] = { 0.608f, 0.671f, 0.733f };
+
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LESS);
         glClear (GL_DEPTH_BUFFER_BIT);
-        glClearBufferfv (GL_COLOR, 0, sky_color);
+        glClearBufferfv (GL_COLOR, 0, background_color);
 
+        // Rotate camera around radius.
         // time = static_cast<GLfloat> (glfwGetTime () * speed);
         // g_lens.position = glm::vec3 (glm::sin (time) * radius,
         //                              0.0f,
         //                              glm::cos (time) * radius);
         // glm::mat4 view = glm::lookAt (g_lens.position, g_lens.direction, g_lens.up);
 
-        // Draw white cube in the center.
+
+#define EXPERIMENT 2
+
+#if EXPERIMENT == 0
         glBindVertexArray (vao);
         glUseProgram (prog);
         glUniformMatrix4fv (u_view_prog, 1, GL_FALSE, &view[0][0]);
         glUniformMatrix4fv (u_projection_prog, 1, GL_FALSE, &g_projection[0][0]);
         glUniform3fv (u_camera_pos_prog, 1, glm::value_ptr (g_lens.get_position ()));
-
-#if 0
+        // Draw white cube in the center
         {
             glm::mat4 model {1.0f};
 
@@ -1140,7 +1158,7 @@ int main (int argc, char **argv)
 
             glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
         }
-
+        // Draw some other cubes in a line with different colors
         for (int i = 2; i < 20; ++i)
         {
             glm::mat4 model {1.0f};
@@ -1151,7 +1169,16 @@ int main (int argc, char **argv)
 
             glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
         }
-#else
+        glUseProgram (0);
+        glBindVertexArray (0);
+#elif EXPERIMENT == 1
+        glBindVertexArray (vao);
+        glUseProgram (prog);
+        glUniformMatrix4fv (u_view_prog, 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv (u_projection_prog, 1, GL_FALSE, &g_projection[0][0]);
+        glUniform3fv (u_camera_pos_prog, 1, glm::value_ptr (g_lens.get_position ()));
+        glClearBufferfv (GL_COLOR, 0, sky_color);
+        // Draw "terrain"
         for (int i = -50; i < 50; ++i)
             for (int j = -50; j < 50; ++j)
             {
@@ -1163,9 +1190,30 @@ int main (int argc, char **argv)
 
                 glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
             }
-#endif
         glUseProgram (0);
         glBindVertexArray (0);
+#elif EXPERIMENT == 2
+        glDisable (GL_DEPTH_TEST);
+        glBindVertexArray (vao);
+        glUseProgram (cloud_prog);
+        glUniformMatrix4fv (u_view_cloud_prog, 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv (u_projection_cloud_prog, 1, GL_FALSE, &g_projection[0][0]);
+        glUniform3fv (u_camera_cloud_prog, 1, glm::value_ptr (g_lens.get_position ()));
+        int w = -1, h = -1;
+        glfwGetFramebufferSize (window, &w, &h);
+        glUniform2f (u_resolution_cloud_prog, w, h);
+
+        // Draw cloud-like cube material
+        {
+            glm::mat4 model {1.0f};
+            glUniformMatrix4fv (u_model_cloud_prog, 1, GL_FALSE, &model[0][0]);
+
+            glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
+        }
+        glUseProgram (0);
+        glBindVertexArray (0);
+        glEnable (GL_DEPTH_TEST);
+#endif
 
         // TODO: HUD Drawing last.
         if (g_draw_hud)
