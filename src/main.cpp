@@ -26,6 +26,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 
 #include <core/runtime.hpp>
@@ -659,8 +660,16 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
 
     // std::cout << "[tick] dt: " << (dt / 1s) << '\n';
 
-    static constexpr GLfloat slow_walk = {0.1f};
-    static constexpr GLfloat norm_walk = {1.0f};
+    static constexpr GLfloat sneaking = {1.31f};
+    static constexpr GLfloat walking = {4.317f};
+    static constexpr GLfloat sprinting = {5.612f};
+
+    GLfloat speed = walking;
+
+    if (key_held (GLFW_KEY_LEFT_SHIFT))
+        speed = sneaking;
+    else if (key_held (GLFW_KEY_LEFT_CONTROL))
+        speed = sprinting;
 
     if (key_down (GLFW_KEY_T))
     {
@@ -684,33 +693,27 @@ void eyepoint::tick (const std::chrono::duration<float> dt)
 
     if (key_held (GLFW_KEY_PAGE_UP))
     {
-        // std::cout << "[Tick] Bigger step forward.\n";
-        _position += world_up * norm_walk * (dt / 1s);
+        _position += world_up * speed * (dt / 1s);
     }
     if (key_held (GLFW_KEY_PAGE_DOWN))
     {
-        // std::cout << "[Tick] Bigger step backward.\n";
-        _position -= world_up * norm_walk * (dt / 1s);
+        _position -= world_up * speed * (dt / 1s);
     }
     if (key_held (GLFW_KEY_W))
     {
-        // std::cout << "[Tick] Bigger step forward.\n";
-        _position += _direction * norm_walk * (dt / 1s);
+        _position += _direction * speed * (dt / 1s);
     }
     if (key_held (GLFW_KEY_S))
     {
-        // std::cout << "[Tick] Bigger step backward.\n";
-        _position -= _direction * norm_walk * (dt / 1s);
+        _position -= _direction * speed * (dt / 1s);
     }
     if (key_held (GLFW_KEY_A))
     {
-        // std::cout << "[Tick] Bigger step left.\n";
-        _position -= right_vec * norm_walk * (dt / 1s);
+        _position -= right_vec * speed * (dt / 1s);
     }
     if (key_held (GLFW_KEY_D))
     {
-        // std::cout << "[Tick] Bigger step right.\n";
-        _position += right_vec * norm_walk * (dt / 1s);
+        _position += right_vec * speed * (dt / 1s);
     }
 
     // Known bug: because movement is not happening in a circle, each movement
@@ -879,20 +882,18 @@ int main (int argc, char **argv)
     bool show_demo_window = true;
     bool show_another_window = false;
 
-    // Setup cube geometry.
     const glm::vec3 origin_vec3 {0.0f, 0.0f, 0.0f};
-    const glm::vec3 pos {0.0f, 0.0f, 0.0f};
-    const GLfloat scale = 0.1f;
 
+    // Setup cube geometry.
     const GLfloat vertices[24] = {
-        pos.x - scale / 2, pos.y - scale / 2, pos.z - scale / 2,
-        pos.x - scale / 2, pos.y - scale / 2, pos.z + scale / 2,
-        pos.x - scale / 2, pos.y + scale / 2, pos.z - scale / 2,
-        pos.x - scale / 2, pos.y + scale / 2, pos.z + scale / 2,
-        pos.x + scale / 2, pos.y - scale / 2, pos.z - scale / 2,
-        pos.x + scale / 2, pos.y - scale / 2, pos.z + scale / 2,
-        pos.x + scale / 2, pos.y + scale / 2, pos.z - scale / 2,
-        pos.x + scale / 2, pos.y + scale / 2, pos.z + scale / 2
+        -0.5f, -0.5f, -0.5f,
+        -0.5f, -0.5f, +0.5f,
+        -0.5f, +0.5f, -0.5f,
+        -0.5f, +0.5f, +0.5f,
+        +0.5f, -0.5f, -0.5f,
+        +0.5f, -0.5f, +0.5f,
+        +0.5f, +0.5f, -0.5f,
+        +0.5f, +0.5f, +0.5f
     };
 
     const GLuint indices[14] = {
@@ -993,6 +994,7 @@ int main (int argc, char **argv)
     UNIFORM (prog, u_view);
     UNIFORM (prog, u_projection);
     UNIFORM (prog, u_some_color);
+    UNIFORM (prog, u_camera_pos);
     glUseProgram (0);
 
     // World axes
@@ -1011,6 +1013,10 @@ int main (int argc, char **argv)
     const GLfloat speed = 2.0f;
     const GLfloat radius = 0.5f;
     GLfloat time = 0.0f;
+
+    // TODO:
+    glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable (GL_BLEND);
 
     g_projection = glm::perspective (glm::radians (g_lens._FOV),
                                      (float) width / (float) height,
@@ -1092,10 +1098,11 @@ int main (int argc, char **argv)
         glm::mat4 view = glm::lookAt (final_pos, final_pos + final_dir, g_lens.get_upvector ());
 
         static const GLfloat background_color[] = { 0.2f, 0.2f, 0.2f, 1.0f };
-        // glEnable (GL_DEPTH_TEST);
-        // glDepthFunc (GL_LESS);
-        // glClear (GL_DEPTH_BUFFER_BIT);
-        glClearBufferfv (GL_COLOR, 0, background_color);
+        static const GLfloat sky_color[] = { 0.608f, 0.671f, 0.733f };
+        glEnable (GL_DEPTH_TEST);
+        glDepthFunc (GL_LESS);
+        glClear (GL_DEPTH_BUFFER_BIT);
+        glClearBufferfv (GL_COLOR, 0, sky_color);
 
         // time = static_cast<GLfloat> (glfwGetTime () * speed);
         // g_lens.position = glm::vec3 (glm::sin (time) * radius,
@@ -1106,31 +1113,52 @@ int main (int argc, char **argv)
         // Draw white cube in the center.
         glBindVertexArray (vao);
         glUseProgram (prog);
-#if 1
+        glUniformMatrix4fv (u_view_prog, 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv (u_projection_prog, 1, GL_FALSE, &g_projection[0][0]);
+        glUniform3fv (u_camera_pos_prog, 1, glm::value_ptr (g_lens.get_position ()));
+
+#if 0
         {
             glm::mat4 model {1.0f};
-            // model = glm::translate (model, origin_vec3);
 
             glUniformMatrix4fv (u_model_prog, 1, GL_FALSE, &model[0][0]);
-            glUniformMatrix4fv (u_view_prog, 1, GL_FALSE, &view[0][0]);
-            glUniformMatrix4fv (u_projection_prog, 1, GL_FALSE, &g_projection[0][0]);
-            glUniform3f (u_some_color_prog, 1.0f, 1.0f, 1.0f);
+            glUniform4fv (u_some_color_prog, 1, glm::value_ptr (glm::vec4 {1.0f, 1.0f, 1.0f, 1.0f}));
+
+            glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
+        }
+        // Draw red cube one block to the right.
+        {
+            glm::mat4 model {1.0f};
+            model = glm::translate (model, {1.0f, 0.0f, 0.0f});
+
+            glUniformMatrix4fv (u_model_prog, 1, GL_FALSE, &model[0][0]);
+            glUniform4f (u_some_color_prog, 1.0f, 0.0f, 0.0f, 1.0f);
+
+            glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
+        }
+
+        for (int i = 2; i < 20; ++i)
+        {
+            glm::mat4 model {1.0f};
+            model = glm::translate (model, {1.0f * i, 0.0f, 0.0f});
+
+            glUniformMatrix4fv (u_model_prog, 1, GL_FALSE, &model[0][0]);
+            glUniform4f (u_some_color_prog, 1.0f, 0.0f, 0.1f * i, 1.0f);
 
             glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
         }
 #else
-        // Draw red cube one block above center.
-        {
-            glm::mat4 model {1.0f};
-            model = glm::translate (model, {0.0f, 0.1f, 0.0f});
+        for (int i = -50; i < 50; ++i)
+            for (int j = -50; j < 50; ++j)
+            {
+                glm::mat4 model {1.0f};
+                model = glm::translate (model, {1.0f * i, -1.0f, 1.0f * j});
 
-            glUniformMatrix4fv (u_model_prog, 1, GL_FALSE, &model[0][0]);
-            glUniformMatrix4fv (u_view_prog, 1, GL_FALSE, &view[0][0]);
-            glUniformMatrix4fv (u_projection_prog, 1, GL_FALSE, &g_projection[0][0]);
-            glUniform3f (u_some_color_prog, 1.0f, 0.0f, 0.0f);
+                glUniformMatrix4fv (u_model_prog, 1, GL_FALSE, &model[0][0]);
+                glUniform4f (u_some_color_prog, 0.1f, 0.5f, 0.1f, 1.0f);
 
-            glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
-        }
+                glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
+            }
 #endif
         glUseProgram (0);
         glBindVertexArray (0);
