@@ -896,11 +896,20 @@ int main (int argc, char **argv)
         +0.5f, +0.5f, +0.5f
     };
 
-    const GLuint indices[14] = {
-        4, 6, 5, 7, 3, 6, 2, 4, 0, 5, 1, 3, 0, 2
+    const GLuint indices[14] = {4, 6, 5, 7, 3, 6, 2, 4, 0, 5, 1, 3, 0, 2};
+
+    // Setup quad geometry.
+    const GLfloat quad_vertices[8] = {
+        -0.5f, -0.5f,
+        -0.5f, +0.5f,
+        +0.5f, -0.5f,
+        +0.5f, +0.5f
     };
 
+    const GLuint quad_indices[4] = {0, 2, 1, 3};
+
     // Init stuff.
+    // Cube
     GLuint vao = 0U, vbo = 0U, ibo = 0U;
     glGenVertexArrays (1, &vao);
     glGenBuffers (1, &vbo);
@@ -939,6 +948,48 @@ int main (int argc, char **argv)
     glBindVertexArray (0);
     glDeleteBuffers (1, &vbo);
     glDeleteBuffers (1, &ibo);
+
+    // -------------------------------------------------------------------------
+
+    // Quad
+    GLuint quad_vao = 0U, quad_vbo = 0U, quad_ibo = 0U;
+    glGenVertexArrays (1, &quad_vao);
+    glGenBuffers (1, &quad_vbo);
+    glGenBuffers (1, &quad_ibo);
+
+    if (! quad_vao)
+    {
+        std::cerr << "error: could not generate vertex array\n";
+        clean_glfw (window);
+        return 1;
+    }
+    if (! quad_vbo)
+    {
+        std::cerr << "error: could not generate vertex buffer\n";
+        clean_glfw (window);
+        return 1;
+    }
+    if (! quad_ibo)
+    {
+        std::cerr << "error: could not generate index buffer \n";
+        clean_glfw (window);
+        return 1;
+    }
+
+    glBindVertexArray (quad_vao);
+    glBindBuffer (GL_ARRAY_BUFFER, quad_vbo);
+    glBindBuffer (GL_ELEMENT_ARRAY_BUFFER, quad_ibo);
+
+    glBufferData (GL_ARRAY_BUFFER, sizeof (quad_vertices), quad_vertices, GL_STATIC_DRAW);
+    glBufferData (GL_ELEMENT_ARRAY_BUFFER, sizeof (quad_indices), quad_indices, GL_STATIC_DRAW);
+
+    // glVertexAttribPointer (0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (void*) 0);
+    glVertexAttribPointer (0, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET (0));
+    glEnableVertexAttribArray (0);
+
+    glBindVertexArray (0);
+    glDeleteBuffers (1, &quad_vbo);
+    glDeleteBuffers (1, &quad_ibo);
 
     // -------------------------------------------------------------------------
 
@@ -988,6 +1039,8 @@ int main (int argc, char **argv)
     glBindVertexArray (0);
     glDeleteBuffers (1, &axes_vbo);
 
+    // -------------------------------------------------------------------------
+
     // Setup shaders.
     // Cubes
     GLuint prog = prepare_program ({
@@ -1022,9 +1075,21 @@ int main (int argc, char **argv)
     glUseProgram (cloud_prog);
     UNIFORM (cloud_prog, u_model);
     UNIFORM (cloud_prog, u_view);
-    UNIFORM (cloud_prog , u_projection);
-    UNIFORM (cloud_prog , u_resolution);
-    UNIFORM (cloud_prog , u_camera);
+    UNIFORM (cloud_prog, u_projection);
+    UNIFORM (cloud_prog, u_resolution);
+    UNIFORM (cloud_prog, u_camera);
+    glUseProgram (0);
+
+    // Quads
+    GLuint quad_prog = prepare_program ({
+        { SHADER_PATH "quad.vert", GL_VERTEX_SHADER },
+        { SHADER_PATH "quad.frag", GL_FRAGMENT_SHADER }
+    });
+
+    glUseProgram (quad_prog);
+    UNIFORM (quad_prog, u_model);
+    UNIFORM (quad_prog, u_view);
+    UNIFORM (quad_prog, u_projection);
     glUseProgram (0);
 
     // Clouds
@@ -1230,7 +1295,7 @@ int main (int argc, char **argv)
         // glm::mat4 view = glm::lookAt (g_lens.position, g_lens.direction, g_lens.up);
 
 
-#define EXPERIMENT 2
+#define EXPERIMENT 4
 
 #if EXPERIMENT == 0
         glBindVertexArray (vao);
@@ -1333,6 +1398,21 @@ int main (int argc, char **argv)
         glUseProgram (0);
         glBindVertexArray (0);
         glEnable (GL_DEPTH_TEST);
+#elif EXPERIMENT == 4
+        glBindVertexArray (quad_vao);
+        glUseProgram (quad_prog);
+        glUniformMatrix4fv (u_view_quad_prog, 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv (u_projection_quad_prog, 1, GL_FALSE, &g_projection[0][0]);
+        // Draw white quad in the center
+        {
+            glm::mat4 model {1.0f};
+
+            glUniformMatrix4fv (u_model_quad_prog, 1, GL_FALSE, &model[0][0]);
+
+            glDrawElements (GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_INT, nullptr);
+        }
+        glUseProgram (0);
+        glBindVertexArray (0);
 #endif
 
         // TODO: HUD Drawing last.
