@@ -31,6 +31,7 @@
 
 #include <core/runtime.hpp>
 #include <core/cpu_profiler.hpp>
+#include "volcaca.hpp"
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // DEBUG macros
@@ -765,6 +766,8 @@ void threadfunc (const std::string &name)
 
 int main (int argc, char **argv)
 {
+    srand(time(nullptr));
+
     FOST_LOG_INFO ("Welcome to {} from spdlog!", "Blockytry");
     std::cout << "Blockytry " << BLOCKYTRY_VERSION_STRING << '\n';
 
@@ -899,11 +902,12 @@ int main (int argc, char **argv)
     const GLuint indices[14] = {4, 6, 5, 7, 3, 6, 2, 4, 0, 5, 1, 3, 0, 2};
 
     // Setup quad geometry.
-    const GLfloat quad_vertices[8] = {
-        -0.5f, -0.5f,
-        -0.5f, +0.5f,
-        +0.5f, -0.5f,
-        +0.5f, +0.5f
+    const GLfloat quad_vertices[16] = {
+        // positions, texture coords
+        -0.5f, -0.5f, 0.0f, 0.0f,
+        -0.5f, +0.5f, 0.0f, 1.0f,
+        +0.5f, -0.5f, 1.0f, 0.0f,
+        +0.5f, +0.5f, 1.0f, 1.0f
     };
 
     const GLuint quad_indices[4] = {0, 2, 1, 3};
@@ -983,9 +987,10 @@ int main (int argc, char **argv)
     glBufferData (GL_ARRAY_BUFFER, sizeof (quad_vertices), quad_vertices, GL_STATIC_DRAW);
     glBufferData (GL_ELEMENT_ARRAY_BUFFER, sizeof (quad_indices), quad_indices, GL_STATIC_DRAW);
 
-    // glVertexAttribPointer (0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (void*) 0);
-    glVertexAttribPointer (0, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET (0));
+    glVertexAttribPointer (0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), BUFFER_OFFSET (0));
     glEnableVertexAttribArray (0);
+    glVertexAttribPointer (1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), BUFFER_OFFSET (2 * sizeof(GLfloat)));
+    glEnableVertexAttribArray (1);
 
     glBindVertexArray (0);
     glDeleteBuffers (1, &quad_vbo);
@@ -1090,6 +1095,8 @@ int main (int argc, char **argv)
     UNIFORM (quad_prog, u_model);
     UNIFORM (quad_prog, u_view);
     UNIFORM (quad_prog, u_projection);
+    UNIFORM (quad_prog, u_num_cells);
+    UNIFORM (quad_prog, u_slice);
     glUseProgram (0);
 
     // Clouds
@@ -1101,10 +1108,17 @@ int main (int argc, char **argv)
     glUseProgram (volumetric_prog);
     UNIFORM (volumetric_prog, u_model);
     UNIFORM (volumetric_prog, u_view);
-    UNIFORM (volumetric_prog , u_projection);
-    UNIFORM (volumetric_prog , u_resolution);
-    UNIFORM (volumetric_prog , u_camera);
+    UNIFORM (volumetric_prog, u_projection);
+    UNIFORM (volumetric_prog, u_resolution);
+    UNIFORM (volumetric_prog, u_camera);
     glUseProgram (0);
+
+    // Worley
+    GLuint worley_comp = prepare_program ({
+        { SHADER_PATH "worley.comp", GL_COMPUTE_SHADER },
+    });
+
+    //--------------------------------------------------------------------------
 
     // Setup cloud texture3D
     const GLint worley_res = 128;
@@ -1162,16 +1176,49 @@ int main (int argc, char **argv)
 
     delete[] volume_data;
 
+    std::size_t worley_numcells = 5;
+    float worley_slice = 0.0f;
+    float *worley_samples = generate_worley_cells_3d(worley_numcells);
+
+    for (int i = 0; i < (worley_numcells * worley_numcells * worley_numcells * 3); ++i)
+        std::cout << worley_samples[i] << '\n';
+
+    unsigned test_tex;
+    glGenTextures (1, &test_tex);
+    glBindTexture (GL_TEXTURE_3D, test_tex);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+
+    glTexImage3D (GL_TEXTURE_3D,
+        0,
+        GL_RGB32F,
+        worley_numcells, worley_numcells, worley_numcells,
+        0,
+        GL_RGB,
+        GL_FLOAT,
+        worley_samples);
+    // glBindImageTexture (0, test_tex, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGB32F);
+    glPixelStoref (GL_UNPACK_SWAP_BYTES, false);
+
+    delete[] worley_samples;
+
     glActiveTexture (GL_TEXTURE0);
     glBindTexture (GL_TEXTURE_3D, cloud_volume_tex);
     glActiveTexture (GL_TEXTURE1);
     glBindTexture (GL_TEXTURE_3D, worley_tex);
+    glActiveTexture (GL_TEXTURE2);
+    glBindTexture (GL_TEXTURE_3D, test_tex);
+
+    glUseProgram (quad_prog);
+    glUniform1i (u_num_cells_quad_prog, worley_numcells);
+    glUseProgram (0);
 
     // Generate worley noise for cloud
-    GLuint worley_comp = prepare_program ({
-        { SHADER_PATH "worley.comp", GL_COMPUTE_SHADER },
-    });
-
     glUseProgram (worley_comp);
     glDispatchCompute (
         worley_res / 8,
@@ -1254,6 +1301,21 @@ int main (int argc, char **argv)
             if (const auto amount = key_held (GLFW_KEY_H))
             {
                 std::cout << "Held H for " << amount << '\n';
+            }
+
+            if (key_held (GLFW_KEY_PERIOD))
+            {
+                worley_slice += 0.001f;
+                if (worley_slice > 1.0f)
+                    worley_slice = 1.0f;
+                std::cout << "worley_slice = " << worley_slice << '\n';
+            }
+            if (key_held (GLFW_KEY_COMMA))
+            {
+                worley_slice -= 0.001f;
+                if (worley_slice < 0.0f)
+                    worley_slice = 0.0f;
+                std::cout << "worley_slice = " << worley_slice << '\n';
             }
 
             g_lens.tick (fost::runtime::tick_unit);
@@ -1408,6 +1470,7 @@ int main (int argc, char **argv)
             glm::mat4 model {1.0f};
 
             glUniformMatrix4fv (u_model_quad_prog, 1, GL_FALSE, &model[0][0]);
+            glUniform1f (u_slice_quad_prog, worley_slice);
 
             glDrawElements (GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_INT, nullptr);
         }
