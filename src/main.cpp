@@ -1027,6 +1027,105 @@ int main (int argc, char **argv)
     UNIFORM (cloud_prog , u_camera);
     glUseProgram (0);
 
+    // Clouds
+    GLuint volumetric_prog = prepare_program ({
+        { SHADER_PATH "volumetric.vert", GL_VERTEX_SHADER },
+        { SHADER_PATH "volumetric.frag", GL_FRAGMENT_SHADER }
+    });
+
+    glUseProgram (volumetric_prog);
+    UNIFORM (volumetric_prog, u_model);
+    UNIFORM (volumetric_prog, u_view);
+    UNIFORM (volumetric_prog , u_projection);
+    UNIFORM (volumetric_prog , u_resolution);
+    UNIFORM (volumetric_prog , u_camera);
+    glUseProgram (0);
+
+    // Setup cloud texture3D
+    const GLint worley_res = 128;
+    const std::size_t volume_size = worley_res * worley_res * worley_res;
+    float *volume_data = new float[volume_size];
+
+    for (int i = 0; i < volume_size; ++i)
+        volume_data[i] = 0.0f;
+
+    volume_data[volume_size / 2] = 1.0f;
+
+    unsigned worley_tex;
+    glGenTextures (1, &worley_tex);
+    glBindTexture (GL_TEXTURE_3D, worley_tex);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+
+    glTexImage3D (GL_TEXTURE_3D,
+        0,
+        GL_R32F,
+        worley_res, worley_res, worley_res,
+        0,
+        GL_RED,
+        GL_FLOAT,
+        volume_data);
+    glBindImageTexture (1, worley_tex, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R32F);
+    glPixelStoref (GL_UNPACK_SWAP_BYTES, false);
+
+    unsigned cloud_volume_tex;
+    glGenTextures (1, &cloud_volume_tex);
+    glBindTexture (GL_TEXTURE_3D, cloud_volume_tex);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+
+    glTexImage3D (GL_TEXTURE_3D,
+        0,
+        GL_R32F,
+        worley_res, worley_res, worley_res,
+        0,
+        GL_RED,
+        GL_FLOAT,
+        volume_data);
+    glBindImageTexture (0, cloud_volume_tex, 0, GL_TRUE, 0, GL_READ_ONLY, GL_R32F);
+    glPixelStoref (GL_UNPACK_SWAP_BYTES, false);
+
+    delete[] volume_data;
+
+    glActiveTexture (GL_TEXTURE0);
+    glBindTexture (GL_TEXTURE_3D, cloud_volume_tex);
+    glActiveTexture (GL_TEXTURE1);
+    glBindTexture (GL_TEXTURE_3D, worley_tex);
+
+    // Generate worley noise for cloud
+    GLuint worley_comp = prepare_program ({
+        { SHADER_PATH "worley.comp", GL_COMPUTE_SHADER },
+    });
+
+    glUseProgram (worley_comp);
+    glDispatchCompute (
+        worley_res / 8,
+        worley_res / 8,
+        worley_res / 8
+    );
+
+    // Wait for results
+    glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    // Copy results to cloud volume texture
+    glCopyImageSubData (
+        worley_tex, GL_TEXTURE_3D, 0, 0, 0, 0,
+        cloud_volume_tex, GL_TEXTURE_3D, 0, 0, 0, 0,
+        worley_res, worley_res, worley_res
+    );
+    glUseProgram(0);
+    glDeleteProgram(worley_comp);
+
     // Setup camera.
     const GLfloat speed = 2.0f;
     const GLfloat radius = 0.5f;
@@ -1203,10 +1302,31 @@ int main (int argc, char **argv)
         glfwGetFramebufferSize (window, &w, &h);
         glUniform2f (u_resolution_cloud_prog, w, h);
 
-        // Draw cloud-like cube material
+        // Draw weird green cloud-like cube material (but its not a cloud)
         {
             glm::mat4 model {1.0f};
             glUniformMatrix4fv (u_model_cloud_prog, 1, GL_FALSE, &model[0][0]);
+
+            glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
+        }
+        glUseProgram (0);
+        glBindVertexArray (0);
+        glEnable (GL_DEPTH_TEST);
+#elif EXPERIMENT == 3
+        glDisable (GL_DEPTH_TEST);
+        glBindVertexArray (vao);
+        glUseProgram (volumetric_prog);
+        glUniformMatrix4fv (u_view_volumetric_prog, 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv (u_projection_volumetric_prog, 1, GL_FALSE, &g_projection[0][0]);
+        glUniform3fv (u_camera_volumetric_prog, 1, glm::value_ptr (g_lens.get_position ()));
+        int w = -1, h = -1;
+        glfwGetFramebufferSize (window, &w, &h);
+        glUniform2f (u_resolution_volumetric_prog, w, h);
+
+        // Draw weird green cloud-like cube material (but its not a cloud)
+        {
+            glm::mat4 model {1.0f};
+            glUniformMatrix4fv (u_model_volumetric_prog, 1, GL_FALSE, &model[0][0]);
 
             glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);
         }
@@ -1257,6 +1377,7 @@ int main (int argc, char **argv)
     ImGui::DestroyContext ();
 
     glDeleteProgram (prog);
+    glDeleteProgram (cloud_prog);
     glDeleteVertexArrays (1, &vao);
     glDeleteVertexArrays (1, &axes_vao);
 

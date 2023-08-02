@@ -1,0 +1,42 @@
+#version 430 core
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+layout (r32f, binding = 1) uniform writeonly image3D volume;
+
+vec3 random3(vec3 p)
+{
+	float d1 = dot(p, vec3(127.1, 311.7, 311.7));
+	float d2 = dot(p, vec3(269.5, 183.3, 183.3));
+	float d3 = dot(p, vec3(384.9, 112.9, 112.9));
+
+	vec3 s = sin(vec3(d1, d2, d3));
+	return fract(s * 43758.5453);
+}
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID.xyz);
+
+	uint size = 128;
+	float scale = 3.0;
+	vec3 uvw = pos / size;
+	uvw *= scale;
+
+	vec3 cell_i = floor(uvw);
+	vec3 cell_f = fract(uvw);
+
+	float min_distance = 1.0;
+
+	for (int z = -1; z <= 1; ++z)
+		for (int y = -1; y <= 1; ++y)
+			for (int x = -1; x <= 1; ++x)
+			{
+				vec3 neighbour = vec3(x, y, z);
+				vec3 point = random3(cell_i + neighbour);
+
+				float dist = length(neighbour + point - cell_f);
+				min_distance = min(min_distance, dist);
+			}
+
+	imageStore(volume, pos, vec4(1 - min_distance, 0.0, 0.0, 0.0));
+}
