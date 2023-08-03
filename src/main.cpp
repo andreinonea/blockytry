@@ -1085,6 +1085,9 @@ int main (int argc, char **argv)
     UNIFORM (cloud_prog, u_camera);
     UNIFORM (cloud_prog, u_num_cells);
     UNIFORM (cloud_prog, u_threshold);
+    UNIFORM (cloud_prog, u_scale);
+    UNIFORM (cloud_prog, u_anchor_low);
+    UNIFORM (cloud_prog, u_anchor_high);
     glUseProgram (0);
 
     // Quads
@@ -1178,8 +1181,12 @@ int main (int argc, char **argv)
 
     delete[] volume_data;
 
+    glm::vec3 cloud_pos {0.0f, 0.0f, 0.0f};
+    glm::vec3 cloud_scale {1.0f, 1.0f, 1.0f};
+
     std::size_t worley_numcells = 5;
     float worley_slice = 0.0f;
+    float worley_scale = 1.0f;
     float transmittance_threshold = 0.0f;
     float *worley_samples = generate_worley_cells_3d(worley_numcells);
 
@@ -1339,6 +1346,92 @@ int main (int argc, char **argv)
                 std::cout << "transmittance_threshold = " << transmittance_threshold << '\n';
             }
 
+            if (key_held (GLFW_KEY_9))
+            {
+                worley_scale -= 0.1f;
+                if (worley_scale < 0.0f)
+                    worley_scale = 0.0f;
+                std::cout << "worley_scale = " << worley_scale << '\n';
+            }
+            if (key_held (GLFW_KEY_0))
+            {
+                worley_scale += 0.1f;
+                std::cout << "worley_scale = " << worley_scale << '\n';
+            }
+
+            if (key_held (GLFW_KEY_P)) // position
+            {
+                if (key_held (GLFW_KEY_KP_7)) // -x
+                {
+                    cloud_pos.x -= 0.1f;
+                    std::cout << "cloud_pos = " << glm::to_string(cloud_pos) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_9)) // +x
+                {
+                    cloud_pos.x += 0.1f;
+                    std::cout << "cloud_pos = " << glm::to_string(cloud_pos) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_4)) // -y
+                {
+                    cloud_pos.y -= 0.1f;
+                    std::cout << "cloud_pos = " << glm::to_string(cloud_pos) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_6)) // +y
+                {
+                    cloud_pos.y += 0.1f;
+                    std::cout << "cloud_pos = " << glm::to_string(cloud_pos) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_1)) // -z
+                {
+                    cloud_pos.z -= 0.1f;
+                    std::cout << "cloud_pos = " << glm::to_string(cloud_pos) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_3)) // +z
+                {
+                    cloud_pos.z += 0.1f;
+                    std::cout << "cloud_pos = " << glm::to_string(cloud_pos) << '\n';
+                }
+            }
+            if (key_held (GLFW_KEY_M)) // scale (marime)
+            {
+                if (key_held (GLFW_KEY_KP_7)) // -x
+                {
+                    cloud_scale.x -= 0.1f;
+                    if (cloud_scale.x < 0.0f)
+                        cloud_scale.x = 0.0f;
+                    std::cout << "cloud_scale = " << glm::to_string(cloud_scale) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_9)) // +x
+                {
+                    cloud_scale.x += 0.1f;
+                    std::cout << "cloud_scale = " << glm::to_string(cloud_scale) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_4)) // -y
+                {
+                    cloud_scale.y -= 0.1f;
+                    if (cloud_scale.y < 0.0f)
+                        cloud_scale.y = 0.0f;
+                    std::cout << "cloud_scale = " << glm::to_string(cloud_scale) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_6)) // +y
+                {
+                    cloud_scale.y += 0.1f;
+                    std::cout << "cloud_scale = " << glm::to_string(cloud_scale) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_1)) // -z
+                {
+                    cloud_scale.z -= 0.1f;
+                    if (cloud_scale.z < 0.0f)
+                        cloud_scale.z = 0.0f;
+                    std::cout << "cloud_scale = " << glm::to_string(cloud_scale) << '\n';
+                }
+                if (key_held (GLFW_KEY_KP_3)) // +z
+                {
+                    cloud_scale.z += 0.1f;
+                    std::cout << "cloud_scale = " << glm::to_string(cloud_scale) << '\n';
+                }
+            }
+
             g_lens.tick (fost::runtime::tick_unit);
 
             prune_events ();
@@ -1389,6 +1482,8 @@ int main (int argc, char **argv)
         // Draw white cube in the center
         {
             glm::mat4 model {1.0f};
+            model = glm::translate(model, cloud_pos);
+            model = glm::scale(model, cloud_scale);
 
             glUniformMatrix4fv (u_model_prog, 1, GL_FALSE, &model[0][0]);
             glUniform4fv (u_some_color_prog, 1, glm::value_ptr (glm::vec4 {1.0f, 1.0f, 1.0f, 1.0f}));
@@ -1446,14 +1541,25 @@ int main (int argc, char **argv)
         glUniformMatrix4fv (u_view_cloud_prog, 1, GL_FALSE, &view[0][0]);
         glUniformMatrix4fv (u_projection_cloud_prog, 1, GL_FALSE, &g_projection[0][0]);
         glUniform3fv (u_camera_cloud_prog, 1, glm::value_ptr (g_lens.get_position ()));
-        glUniform1f (u_threshold_cloud_prog, transmittance_threshold);
         int w = -1, h = -1;
         glfwGetFramebufferSize (window, &w, &h);
         glUniform2f (u_resolution_cloud_prog, w, h);
 
+        const glm::vec3 anchor_low = cloud_pos - (cloud_scale * 0.5f);
+        const glm::vec3 anchor_high = cloud_pos + (cloud_scale * 0.5f);
+
+        // std::cout << glm::to_string (anchor_low) << '\n';
+        // std::cout << glm::to_string (anchor_high) << '\n';
+        glUniform3fv (u_anchor_low_cloud_prog, 1, glm::value_ptr (anchor_low));
+        glUniform3fv (u_anchor_high_cloud_prog, 1, glm::value_ptr (anchor_high));
+        glUniform1f (u_threshold_cloud_prog, transmittance_threshold);
+        glUniform1f (u_scale_cloud_prog, worley_scale);
+
         // Draw weird green cloud-like cube material (but its not a cloud)
         {
             glm::mat4 model {1.0f};
+            model = glm::translate(model, cloud_pos);
+            model = glm::scale(model, cloud_scale);
             glUniformMatrix4fv (u_model_cloud_prog, 1, GL_FALSE, &model[0][0]);
 
             glDrawElements (GL_TRIANGLE_STRIP, 14, GL_UNSIGNED_INT, nullptr);

@@ -7,10 +7,11 @@ in vec3 v_frag_pos;
 
 uniform int u_num_cells;
 uniform float u_threshold;
+uniform float u_scale;
 uniform vec2 u_resolution;
 uniform vec3 u_camera;
-uniform vec3 u_anchor_low = vec3(-0.5, -0.5, -0.5);
-uniform vec3 u_anchor_high = vec3(0.5, 0.5, 0.5);
+uniform vec3 u_anchor_low;
+uniform vec3 u_anchor_high;
 uniform vec3 u_color = vec3(1.0);
 
 layout (binding = 2) uniform sampler3D volume;
@@ -19,10 +20,17 @@ layout (binding = 2) uniform sampler3D volume;
 layout (location = 0) out vec4 f_color;
 
 
-float sample_density(vec3 point)
+// float sample_density(vec3 point)
+vec3 sample_density(vec3 point)
 {
-	point *= u_num_cells;
-	ivec3 cell = ivec3(floor(point));
+	vec3 offset = fract(point * u_scale);
+	ivec3 cell = ivec3(floor(point * u_scale));
+
+	cell.x %= u_num_cells;
+	cell.y %= u_num_cells;
+	cell.z %= u_num_cells;
+
+	point = cell + offset;
 
 	float min_dist = 1.0;
 
@@ -30,7 +38,23 @@ float sample_density(vec3 point)
 		for (int y = -1; y <= 1; ++y)
 			for (int x = -1; x <= 1; ++x)
 			{
-				ivec3 neighbor = ivec3(mod(cell + ivec3(x, y, z) + ivec3(u_num_cells), u_num_cells));
+				// ivec3 neighbor = ivec3(mod(cell + ivec3(z, y, x) + ivec3(u_num_cells), u_num_cells));
+				ivec3 neighbor = ivec3(cell + ivec3(z, y, x));
+
+				if (neighbor.x < 0)
+					neighbor.x = u_num_cells - 1;
+				else if (neighbor.x >= u_num_cells)
+					neighbor.x = 0;
+
+				if (neighbor.y < 0)
+					neighbor.y = u_num_cells - 1;
+				else if (neighbor.y >= u_num_cells)
+					neighbor.y = 0;
+
+				if (neighbor.z < 0)
+					neighbor.z = u_num_cells - 1;
+				else if (neighbor.z >= u_num_cells)
+					neighbor.z = 0;
 
 				// Sampling coordinates must be reversed to account for different structure in volume than generated points.
 				vec3 point_in_neighbor = vec3(texelFetch(volume, ivec3(neighbor.z, neighbor.y, neighbor.x), 0)) * u_num_cells;
@@ -38,7 +62,9 @@ float sample_density(vec3 point)
 				min_dist = min(min_dist, dist);
 			}
 
-	return 1 - min_dist;
+	return vec3(point / u_num_cells);
+	// return vec3(cell) / u_num_cells;
+	// return 1 - min_dist;
 }
 
 vec2 get_intersections(vec3 ro, vec3 rd_inv, vec3 anchor_low, vec3 anchor_high)
@@ -73,19 +99,22 @@ void main ()
 	float step_size = 0.01;
 	float transmittance = 0.0;
 
-	for (float p = near; p < far; p += step_size)
-	{
-		vec3 point = u_camera + dir * p - u_anchor_low;
-		float density = sample_density(point) * step_size;
-		transmittance += density;
-	}
+	// for (float p = near; p < far; p += step_size)
+	// {
+	// 	vec3 point = u_camera + dir * p;
+	// 	float density = sample_density(point) * step_size;
+	// 	transmittance += density;
+	// }
 
-	if (transmittance < u_threshold)
-		transmittance = 0;
+	// if (transmittance < u_threshold)
+	// 	transmittance = 0;
 
-	transmittance = 1 - exp(-transmittance);
-	f_color = vec4(u_color, transmittance);
+	// transmittance = 1 - exp(-transmittance);
+	// f_color = vec4(u_color, transmittance);
 
 	// transmittance = sample_density(u_camera + (dir * near) - u_anchor_low);
 	// f_color = vec4(vec3(transmittance), 1.0);
+
+	vec3 caca = sample_density(u_camera + (dir * near) - u_anchor_low);
+	f_color = vec4(caca, 1.0);
 }
