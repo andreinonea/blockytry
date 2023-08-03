@@ -1,20 +1,45 @@
-#version 330 core
+#version 430 core
 
 in mat4 u_vp_inverse;
 
 // Position of the fragment from vertex pass
 in vec3 v_frag_pos;
 
+uniform int u_num_cells;
+uniform float u_threshold;
 uniform vec2 u_resolution;
 uniform vec3 u_camera;
 uniform vec3 u_anchor_low = vec3(-0.5, -0.5, -0.5);
 uniform vec3 u_anchor_high = vec3(0.5, 0.5, 0.5);
-uniform vec4 u_color = vec4(0.0, 0.8, 0.3, 1.0);
-uniform vec4 u_fog_color = vec4(0.608, 0.671, 0.733, 0.0);
+uniform vec3 u_color = vec3(1.0);
+
+layout (binding = 2) uniform sampler3D volume;
 
 // Output
 layout (location = 0) out vec4 f_color;
 
+
+float sample_density(vec3 point)
+{
+	point *= u_num_cells;
+	ivec3 cell = ivec3(floor(point));
+
+	float min_dist = 1.0;
+
+	for (int z = -1; z <= 1; ++z)
+		for (int y = -1; y <= 1; ++y)
+			for (int x = -1; x <= 1; ++x)
+			{
+				ivec3 neighbor = ivec3(mod(cell + ivec3(x, y, z) + ivec3(u_num_cells), u_num_cells));
+
+				// Sampling coordinates must be reversed to account for different structure in volume than generated points.
+				vec3 point_in_neighbor = vec3(texelFetch(volume, ivec3(neighbor.z, neighbor.y, neighbor.x), 0)) * u_num_cells;
+				float dist = length(point - point_in_neighbor);
+				min_dist = min(min_dist, dist);
+			}
+
+	return 1 - min_dist;
+}
 
 vec2 get_intersections(vec3 ro, vec3 rd_inv, vec3 anchor_low, vec3 anchor_high)
 {
@@ -40,23 +65,27 @@ void main ()
 	vec3 target = (u_vp_inverse * clip).xyz;
 
 	vec3 dir = normalize(target - u_camera);
-	// vec3 dir_v = normalize(v_frag_pos - u_camera);
 
 	vec2 hits = get_intersections(u_camera, 1 / dir, u_anchor_low, u_anchor_high);
+	float near = hits.x;
+	float far = hits.y;
 
-	float dist_in_cube = clamp(hits.y - hits.x, 0.0, 1.0);
+	float step_size = 0.01;
+	float transmittance = 0.0;
 
-	float visibility = clamp(exp(-dist_in_cube), 0.0, 1.0);
+	for (float p = near; p < far; p += step_size)
+	{
+		vec3 point = u_camera + dir * p - u_anchor_low;
+		float density = sample_density(point) * step_size;
+		transmittance += density;
+	}
 
-	f_color = mix(u_color, u_fog_color, visibility);
-	// f_color = u_color * (1-visibility);
+	if (transmittance < u_threshold)
+		transmittance = 0;
 
-	// if (dir == dir_v)
-	// {
-	// 	f_color = vec4(1.0, 1.0, 1.0, 1.0);
-	// }
-	// else
-	// {
-	// 	f_color = vec4(0.0, 0.0, 0.0, 1.0);
-	// }
+	transmittance = 1 - exp(-transmittance);
+	f_color = vec4(u_color, transmittance);
+
+	// transmittance = sample_density(u_camera + (dir * near) - u_anchor_low);
+	// f_color = vec4(vec3(transmittance), 1.0);
 }

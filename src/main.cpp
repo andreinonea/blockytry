@@ -1083,6 +1083,8 @@ int main (int argc, char **argv)
     UNIFORM (cloud_prog, u_projection);
     UNIFORM (cloud_prog, u_resolution);
     UNIFORM (cloud_prog, u_camera);
+    UNIFORM (cloud_prog, u_num_cells);
+    UNIFORM (cloud_prog, u_threshold);
     glUseProgram (0);
 
     // Quads
@@ -1178,6 +1180,7 @@ int main (int argc, char **argv)
 
     std::size_t worley_numcells = 5;
     float worley_slice = 0.0f;
+    float transmittance_threshold = 0.0f;
     float *worley_samples = generate_worley_cells_3d(worley_numcells);
 
     for (int i = 0; i < (worley_numcells * worley_numcells * worley_numcells * 3); ++i)
@@ -1217,6 +1220,11 @@ int main (int argc, char **argv)
     glUseProgram (quad_prog);
     glUniform1i (u_num_cells_quad_prog, worley_numcells);
     glUseProgram (0);
+
+    glUseProgram (cloud_prog);
+    glUniform1i (u_num_cells_cloud_prog, worley_numcells);
+    glUseProgram (0);
+
 
     // Generate worley noise for cloud
     glUseProgram (worley_comp);
@@ -1318,6 +1326,19 @@ int main (int argc, char **argv)
                 std::cout << "worley_slice = " << worley_slice << '\n';
             }
 
+            if (key_held (GLFW_KEY_RIGHT_BRACKET))
+            {
+                transmittance_threshold += 0.05f;
+                std::cout << "transmittance_threshold = " << transmittance_threshold << '\n';
+            }
+            if (key_held (GLFW_KEY_LEFT_BRACKET))
+            {
+                transmittance_threshold -= 0.05f;
+                if (transmittance_threshold < 0.0f)
+                    transmittance_threshold = 0.0f;
+                std::cout << "transmittance_threshold = " << transmittance_threshold << '\n';
+            }
+
             g_lens.tick (fost::runtime::tick_unit);
 
             prune_events ();
@@ -1357,7 +1378,7 @@ int main (int argc, char **argv)
         // glm::mat4 view = glm::lookAt (g_lens.position, g_lens.direction, g_lens.up);
 
 
-#define EXPERIMENT 4
+#define EXPERIMENT 2
 
 #if EXPERIMENT == 0
         glBindVertexArray (vao);
@@ -1425,6 +1446,7 @@ int main (int argc, char **argv)
         glUniformMatrix4fv (u_view_cloud_prog, 1, GL_FALSE, &view[0][0]);
         glUniformMatrix4fv (u_projection_cloud_prog, 1, GL_FALSE, &g_projection[0][0]);
         glUniform3fv (u_camera_cloud_prog, 1, glm::value_ptr (g_lens.get_position ()));
+        glUniform1f (u_threshold_cloud_prog, transmittance_threshold);
         int w = -1, h = -1;
         glfwGetFramebufferSize (window, &w, &h);
         glUniform2f (u_resolution_cloud_prog, w, h);
