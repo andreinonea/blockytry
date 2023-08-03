@@ -1192,7 +1192,7 @@ int main (int argc, char **argv)
     glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
-    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
+    // glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
 
     glTexImage3D (GL_TEXTURE_3D,
         0,
@@ -1203,7 +1203,7 @@ int main (int argc, char **argv)
         GL_FLOAT,
         worley_samples);
     // glBindImageTexture (0, test_tex, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGB32F);
-    glPixelStoref (GL_UNPACK_SWAP_BYTES, false);
+    // glPixelStoref (GL_UNPACK_SWAP_BYTES, false);
 
     delete[] worley_samples;
 
@@ -1305,14 +1305,14 @@ int main (int argc, char **argv)
 
             if (key_held (GLFW_KEY_PERIOD))
             {
-                worley_slice += 0.001f;
+                worley_slice += 0.005f;
                 if (worley_slice > 1.0f)
                     worley_slice = 1.0f;
                 std::cout << "worley_slice = " << worley_slice << '\n';
             }
             if (key_held (GLFW_KEY_COMMA))
             {
-                worley_slice -= 0.001f;
+                worley_slice -= 0.005f;
                 if (worley_slice < 0.0f)
                     worley_slice = 0.0f;
                 std::cout << "worley_slice = " << worley_slice << '\n';
